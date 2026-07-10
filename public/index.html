@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livro — ERP para prestação de serviços</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EE;
+    --surface:#FFFFFF;
+    --ink:#1C2321;
+    --ink-soft:#5E675F;
+    --ink-faint:#8B9289;
+    --line:#E1DDD1;
+    --line-strong:#CFC9B8;
+    --accent:#1F6F50;
+    --accent-soft:#E6F1EC;
+    --accent-dark:#154B36;
+    --danger:#A8402A;
+    --danger-soft:#F7E9E4;
+    --warn:#9C7A0E;
+    --warn-soft:#FBF1DA;
+    --radius:10px;
+    --sidebar-w:230px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .num, input, select, td.num, .money{ font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  h1,h2,h3,.display{ font-family:'Fraunces',serif; font-weight:600; letter-spacing:-0.01em;}
+  .app{ display:flex; min-height:100vh; }
+
+  /* Sidebar */
+  .sidebar{
+    width:var(--sidebar-w); flex-shrink:0; background:var(--ink); color:#EFEBE0;
+    padding:22px 16px; display:flex; flex-direction:column; gap:4px;
+    position:sticky; top:0; height:100vh;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; padding:4px 8px 22px 8px; }
+  .brand-mark{ width:30px; height:30px; border-radius:7px; background:var(--accent); display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:600; font-size:16px; color:#fff; flex-shrink:0; }
+  .brand-name{ font-family:'Fraunces',serif; font-size:16.5px; font-weight:600; line-height:1.15;}
+  .brand-sub{ font-size:10.5px; color:#B7C2B8; letter-spacing:.06em; text-transform:uppercase; margin-top:2px;}
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px;
+    color:#CFD6CB; font-size:13.5px; cursor:pointer; border:none; background:transparent;
+    text-align:left; width:100%; font-family:inherit;
+  }
+  .nav-item:hover{ background:rgba(255,255,255,.06); color:#fff; }
+  .nav-item.active{ background:var(--accent); color:#fff; }
+  .nav-dot{ width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.55; flex-shrink:0;}
+  .nav-item.active .nav-dot{ opacity:1;}
+  .sidebar-foot{ margin-top:auto; padding:10px 8px; font-size:11px; color:#8E9A8E; border-top:1px solid rgba(255,255,255,.09); padding-top:14px;}
+
+  /* Main */
+  .main{ flex:1; padding:30px 40px 60px; max-width:1180px; }
+  .topline{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:26px; flex-wrap:wrap; gap:10px;}
+  .topline h1{ font-size:25px; margin:0; }
+  .topline .sub{ color:var(--ink-soft); font-size:13px; margin-top:3px;}
+  .today{ font-size:12.5px; color:var(--ink-faint); }
+
+  /* Cards / tables */
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom:18px;}
+  .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap;}
+  .card-head h2{ font-size:15.5px; margin:0; }
+  .card-head .hint{ font-size:12px; color:var(--ink-faint); }
+
+  .kpi-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:20px;}
+  .kpi{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .kpi .label{ font-size:11.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;}
+  .kpi .value{ font-size:23px; font-weight:500; }
+  .kpi .value.pos{ color:var(--accent-dark);} .kpi .value.neg{ color:var(--danger);}
+
+  table{ width:100%; border-collapse:collapse; font-size:13px;}
+  th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line-strong);}
+  td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
+  tr:last-child td{ border-bottom:none;}
+  td.num, th.num{ text-align:right;}
+  tbody tr:hover{ background:var(--bg); }
+  .muted{ color:var(--ink-faint); }
+  .pos{ color:var(--accent-dark); } .neg{ color:var(--danger); }
+
+  .pill{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:500; }
+  .pill.green{ background:var(--accent-soft); color:var(--accent-dark);}
+  .pill.red{ background:var(--danger-soft); color:var(--danger);}
+  .pill.amber{ background:var(--warn-soft); color:var(--warn);}
+  .pill.gray{ background:var(--bg); color:var(--ink-soft); border:1px solid var(--line);}
+
+  input, select{
+    font-family:'Inter',sans-serif; font-size:13px; padding:8px 10px; border:1px solid var(--line-strong);
+    border-radius:8px; background:#fff; color:var(--ink); width:100%;
+  }
+  input.num, select.num{ font-family:'IBM Plex Mono',monospace; }
+  label{ font-size:11.5px; color:var(--ink-soft); display:block; margin-bottom:4px; }
+  .field{ margin-bottom:0; }
+  .form-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; align-items:end; margin-bottom:14px;}
+  button{ font-family:'Inter',sans-serif; cursor:pointer; }
+  .btn{ padding:9px 16px; border-radius:8px; border:1px solid var(--line-strong); background:#fff; font-size:13px; font-weight:500; color:var(--ink); }
+  .btn:hover{ border-color:var(--ink-faint); }
+  .btn-primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn-primary:hover{ background:var(--accent-dark); border-color:var(--accent-dark); }
+  .btn-danger-ghost{ background:transparent; border:none; color:var(--danger); font-size:12px; padding:4px 6px; }
+  .btn-ghost{ background:transparent; border:none; color:var(--ink-soft); font-size:12px; padding:4px 6px; }
+  .btn-ghost:hover, .btn-danger-ghost:hover{ text-decoration:underline;}
+  select#extratoConta, select#dreMes, select#dreAno{ width:auto; display:inline-block; }
+
+  .empty{ text-align:center; padding:36px 10px; color:var(--ink-faint); font-size:13px; }
+  .dre-line{ display:flex; justify-content:space-between; padding:7px 2px; border-bottom:1px solid var(--line); font-size:13.5px;}
+  .dre-line.total{ font-weight:600; border-bottom:2px solid var(--ink); border-top:1px solid var(--line-strong); margin-top:4px; }
+  .dre-line.sub{ padding-left:14px; color:var(--ink-soft); font-size:12.5px; }
+  .dre-line .lbl{ display:flex; align-items:center; gap:6px;}
+  .dre-section-title{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); margin:16px 0 4px; }
+
+  .badge-count{ background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:1px 8px; font-size:11px; color:var(--ink-soft);}
+
+  ::placeholder{ color:var(--ink-faint); opacity:1;}
+  @media (max-width:900px){
+    .app{ flex-direction:column; }
+    .sidebar{ width:100%; height:auto; position:relative; flex-direction:row; overflow-x:auto; padding:14px; }
+    .sidebar-foot{ display:none; }
+    .brand{ padding:0 12px 0 0; }
+    .main{ padding:20px; }
+  }
+</style>
+</head>
+<body>
+<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);">
+  <div style="width:100%; max-width:340px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:28px 26px;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:22px;">
+      <div class="brand-mark" style="background:var(--accent);">L</div>
+      <div>
+        <div class="display" style="font-size:17px;">Livro</div>
+        <div class="muted" style="font-size:11.5px;" id="loginTituloAcao">Entre para acessar o ERP</div>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:12px;"><label>Usuário</label><input id="loginUsuario" placeholder="usuário" autocomplete="username"></div>
+    <div class="field" style="margin-bottom:6px;"><label>Senha</label><input id="loginSenha" type="password" placeholder="senha" autocomplete="current-password"></div>
+    <div id="loginPrimeiroAcesso" class="hint" style="margin-bottom:8px;"></div>
+    <div id="loginErro" style="color:var(--danger); font-size:12px; min-height:16px; margin:2px 0 8px;"></div>
+    <button class="btn btn-primary" id="loginBtn" style="width:100%;">Entrar</button>
+  </div>
+</div>
+<div class="app" id="appRoot" style="display:none;">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">L</div>
+      <div>
+        <div class="brand-name" id="empresaNomeSidebar">Minha Empresa</div>
+        <div class="brand-sub">Livro · ERP</div>
+      </div>
+    </div>
+    <button class="nav-item" data-tab="dashboard"><span class="nav-dot"></span>Dashboard</button>
+    <button class="nav-item" data-tab="contas"><span class="nav-dot"></span>Contas bancárias</button>
+    <button class="nav-item" data-tab="extrato"><span class="nav-dot"></span>Extrato bancário</button>
+    <button class="nav-item" data-tab="apagarreceber"><span class="nav-dot"></span>Contas a pagar/receber</button>
+    <button class="nav-item" data-tab="fornecedores"><span class="nav-dot"></span>Fornecedores</button>
+    <button class="nav-item" data-tab="notas"><span class="nav-dot"></span>Notas fiscais</button>
+    <button class="nav-item" data-tab="clientes"><span class="nav-dot"></span>Clientes / consórcios</button>
+    <button class="nav-item" data-tab="dre"><span class="nav-dot"></span>DRE</button>
+    <button class="nav-item" data-tab="balancete"><span class="nav-dot"></span>Balancete</button>
+    <button class="nav-item" data-tab="acesso"><span class="nav-dot"></span>Acesso e senha</button>
+    <button class="nav-item" data-tab="backup"><span class="nav-dot"></span>Backup e atualização</button>
+    <div class="sidebar-foot">
+      <span id="statusSalvamento">Salvo no servidor</span>
+      <button class="btn-ghost" id="logoutBtn" style="padding:0; margin-top:6px; color:#CFD6CB; text-decoration:underline;">Sair</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topline">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <div class="sub" id="pageSub">Visão geral da sua empresa de serviços</div>
+      </div>
+      <div class="today" id="todayLabel"></div>
+    </div>
+    <div id="view"></div>
+  </div>
+</div>
+
+<script>
+/* ---------------- Utilidades ---------------- */
+const fmtMoney = v => (v<0?'-':'') + 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtDate = d => { if(!d) return ''; const [y,m,day]=d.split('-'); return day+'/'+m+'/'+y; };
+const todayISO = () => new Date().toISOString().slice(0,10);
+const uid = () => Math.random().toString(36).slice(2,10);
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
+
+const CATEGORIAS = [
+  {id:'receita_servicos', label:'Receita de serviços', grupo:'receita'},
+  {id:'deducoes', label:'Impostos sobre serviços (ISS, PIS, COFINS...)', grupo:'deducao'},
+  {id:'custo_servicos', label:'Custo dos serviços prestados', grupo:'custo'},
+  {id:'desp_pessoal', label:'Despesas com pessoal', grupo:'op'},
+  {id:'desp_admin', label:'Despesas administrativas', grupo:'op'},
+  {id:'desp_comercial', label:'Despesas comerciais / marketing', grupo:'op'},
+  {id:'receita_financeira', label:'Receitas financeiras', grupo:'fin_receita'},
+  {id:'desp_financeira', label:'Despesas financeiras (juros, tarifas)', grupo:'fin_despesa'},
+  {id:'outras_receitas', label:'Outras receitas', grupo:'outras_receitas'},
+  {id:'outras_despesas', label:'Outras despesas', grupo:'outras_despesas'},
+  {id:'transferencia', label:'Transferência entre contas (não entra na DRE)', grupo:'neutro'},
+];
+const catLabel = id => (CATEGORIAS.find(c=>c.id===id)||{}).label || id;
+
+/* ---------------- Estado + persistência ---------------- */
+let state = {
+  empresa: { nome:'Minha Empresa' },
+  contas: [],
+  transacoes: [],
+  notas: [],
+  plano: [],
+  clientes: [],
+  contasPagar: [],
+  contasReceber: [],
+  fornecedores: []
+};
+
+function planoPadrao(){
+  return [
+    {id:uid(), grupo:'Ativo', conta:'Caixa', natureza:'D', saldoManual:0, auto:'caixa'},
+    {id:uid(), grupo:'Ativo', conta:'Bancos - conta movimento', natureza:'D', saldoManual:0, auto:'bancos'},
+    {id:uid(), grupo:'Ativo', conta:'Contas a receber de clientes', natureza:'D', saldoManual:0},
+    {id:uid(), grupo:'Ativo', conta:'Imobilizado', natureza:'D', saldoManual:0},
+    {id:uid(), grupo:'Passivo', conta:'Fornecedores a pagar', natureza:'C', saldoManual:0},
+    {id:uid(), grupo:'Passivo', conta:'Impostos a recolher', natureza:'C', saldoManual:0},
+    {id:uid(), grupo:'Patrimônio Líquido', conta:'Capital social', natureza:'C', saldoManual:0},
+    {id:uid(), grupo:'Patrimônio Líquido', conta:'Lucros/Prejuízos acumulados', natureza:'C', saldoManual:0},
+    {id:uid(), grupo:'Resultado', conta:'Receitas do período', natureza:'C', saldoManual:0, auto:'receitas'},
+    {id:uid(), grupo:'Resultado', conta:'Despesas e custos do período', natureza:'D', saldoManual:0, auto:'despesas'},
+  ];
+}
+
+async function loadState(){
+  try{
+    const r = await fetch('/api/data', {credentials:'same-origin'});
+    if(r.ok){
+      const parsed = await r.json();
+      state = Object.assign(state, parsed);
+    }
+  }catch(e){
+    console.error('Falha ao carregar dados do servidor', e);
+  }
+  if(!state.plano || state.plano.length===0) state.plano = planoPadrao();
+  if(!state.clientes) state.clientes = [];
+  if(!state.contasPagar) state.contasPagar = [];
+  if(!state.contasReceber) state.contasReceber = [];
+  if(!state.fornecedores) state.fornecedores = [];
+}
+
+let saveTimer=null;
+let salvando = false;
+function marcarSalvando(ativo){
+  salvando = ativo;
+  const el = document.getElementById('statusSalvamento');
+  if(el) el.textContent = ativo ? 'Salvando...' : 'Salvo no servidor';
+}
+function saveState(){
+  return new Promise((resolve)=>{
+    clearTimeout(saveTimer);
+    marcarSalvando(true);
+    saveTimer = setTimeout(async ()=>{
+      try{
+        await fetch('/api/data', {
+          method:'PUT',
+          headers:{'Content-Type':'application/json'},
+          credentials:'same-origin',
+          body: JSON.stringify(state)
+        });
+      }catch(e){ console.error('Falha ao salvar', e); }
+      marcarSalvando(false);
+      resolve();
+    }, 400);
+  });
+}
+
+/* ---------------- Cálculos ---------------- */
+function saldoConta(contaId){
+  const conta = state.contas.find(c=>c.id===contaId);
+  if(!conta) return 0;
+  const mov = state.transacoes.filter(t=>t.contaId===contaId)
+    .reduce((s,t)=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
+  return (conta.saldoInicial||0) + mov;
+}
+function saldoTotalContas(){
+  return state.contas.reduce((s,c)=> s + saldoConta(c.id), 0);
+}
+function transacoesDoMes(mes, ano){
+  return state.transacoes.filter(t=>{
+    const d = new Date(t.data+'T00:00:00');
+    return d.getMonth()===mes && d.getFullYear()===ano;
+  });
+}
+function somaCategoria(txs, catIds){
+  return txs.filter(t=>catIds.includes(t.categoria))
+    .reduce((s,t)=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
+}
+function calcularDRE(mes, ano){
+  const txs = transacoesDoMes(mes, ano);
+  const receitaBruta = Math.abs(somaCategoria(txs,['receita_servicos']));
+  const deducoes = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['deducoes']));
+  const receitaLiquida = receitaBruta - deducoes;
+  const custoServicos = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['custo_servicos']));
+  const lucroBruto = receitaLiquida - custoServicos;
+  const despPessoal = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_pessoal']));
+  const despAdmin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_admin']));
+  const despComercial = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_comercial']));
+  const despOperacionais = despPessoal+despAdmin+despComercial;
+  const resultadoOperacional = lucroBruto - despOperacionais;
+  const receitaFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'),['receita_financeira']));
+  const despFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_financeira']));
+  const resultadoFinanceiro = receitaFin - despFin;
+  const outrasReceitas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'),['outras_receitas']));
+  const outrasDespesas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['outras_despesas']));
+  const resultadoLiquido = resultadoOperacional + resultadoFinanceiro + outrasReceitas - outrasDespesas;
+  return {receitaBruta,deducoes,receitaLiquida,custoServicos,lucroBruto,despPessoal,despAdmin,despComercial,despOperacionais,resultadoOperacional,receitaFin,despFin,resultadoFinanceiro,outrasReceitas,outrasDespesas,resultadoLiquido};
+}
+function totalReceitasDespesasGeral(){
+  let receitas=0, despesas=0;
+  state.transacoes.forEach(t=>{
+    const cat = CATEGORIAS.find(c=>c.id===t.categoria);
+    if(!cat || cat.grupo==='neutro') return;
+    if(t.tipo==='credito') receitas += t.valor; else despesas += t.valor;
+  });
+  return {receitas, despesas};
+}
+
+/* ---------------- Navegação ---------------- */
+const TITLES = {
+  dashboard:['Dashboard','Visão geral da sua empresa de serviços'],
+  contas:['Contas bancárias','Cadastre as contas usadas pela empresa'],
+  extrato:['Extrato bancário','Lançamentos de entrada e saída por conta'],
+  apagarreceber:['Contas a pagar/receber','Controle de vencimentos e pagamentos pendentes'],
+  fornecedores:['Fornecedores','Cadastro de fornecedores e prestadores parceiros'],
+  notas:['Notas fiscais','Controle de notas emitidas e recebidas'],
+  clientes:['Clientes / consórcios','Acompanhe quem já fechou, quem está em negociação e quem foi perdido'],
+  dre:['DRE','Demonstração do Resultado do Exercício, por regime de caixa'],
+  balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
+  acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
+  backup:['Backup e atualização','Exporte e importe seus dados com segurança']
+};
+let activeTab = 'dashboard';
+function setTab(tab){
+  activeTab = tab;
+  document.querySelectorAll('.nav-item').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+  document.getElementById('pageTitle').textContent = TITLES[tab][0];
+  document.getElementById('pageSub').textContent = TITLES[tab][1];
+  render();
+}
+document.querySelectorAll('.nav-item').forEach(b=> b.addEventListener('click', ()=>setTab(b.dataset.tab)));
+
+/* ---------------- Render dispatcher ---------------- */
+function render(){
+  const view = document.getElementById('view');
+  document.getElementById('empresaNomeSidebar').textContent = state.empresa.nome || 'Minha Empresa';
+  if(activeTab==='dashboard') view.innerHTML = renderDashboard();
+  if(activeTab==='contas') view.innerHTML = renderContas();
+  if(activeTab==='extrato') view.innerHTML = renderExtrato();
+  if(activeTab==='apagarreceber') view.innerHTML = renderContasPagarReceber();
+  if(activeTab==='fornecedores') view.innerHTML = renderFornecedores();
+  if(activeTab==='notas') view.innerHTML = renderNotas();
+  if(activeTab==='clientes') view.innerHTML = renderClientes();
+  if(activeTab==='dre') view.innerHTML = renderDRE();
+  if(activeTab==='balancete') view.innerHTML = renderBalancete();
+  if(activeTab==='acesso') view.innerHTML = renderAcesso();
+  if(activeTab==='backup') view.innerHTML = renderBackup();
+  attachHandlers();
+}
+
+/* ---------------- DASHBOARD ---------------- */
+function renderDashboard(){
+  const hoje = new Date();
+  const dre = calcularDRE(hoje.getMonth(), hoje.getFullYear());
+  const saldo = saldoTotalContas();
+  const notasAbertas = state.notas.filter(n=>n.status==='emitida').length;
+  const ultimasTx = [...state.transacoes].sort((a,b)=> b.data.localeCompare(a.data)).slice(0,6);
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Saldo em contas</div><div class="value ${saldo>=0?'pos':'neg'}">${fmtMoney(saldo)}</div></div>
+    <div class="kpi"><div class="label">Receita do mês</div><div class="value pos">${fmtMoney(dre.receitaBruta)}</div></div>
+    <div class="kpi"><div class="label">Resultado do mês</div><div class="value ${dre.resultadoLiquido>=0?'pos':'neg'}">${fmtMoney(dre.resultadoLiquido)}</div></div>
+    <div class="kpi"><div class="label">Notas fiscais em aberto</div><div class="value">${notasAbertas}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Nome da empresa</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr auto;">
+      <div class="field"><input id="empresaNomeInput" value="${escAttr(state.empresa.nome)}" placeholder="Nome da sua empresa"></div>
+      <button class="btn btn-primary" id="salvarEmpresa">Salvar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Últimos lançamentos</h2><span class="hint">Extrato bancário</span></div>
+    ${ultimasTx.length===0? '<div class="empty">Nenhum lançamento ainda. Vá até "Extrato bancário" para adicionar o primeiro.</div>' : `
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th class="num">Valor</th></tr></thead><tbody>
+      ${ultimasTx.map(t=>`<tr><td>${fmtDate(t.data)}</td><td>${escHtml(t.descricao)}</td><td class="muted">${escHtml(contaNome(t.contaId))}</td>
+      <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+function contaNome(id){ const c = state.contas.find(c=>c.id===id); return c? (c.nome+(c.banco? ' · '+c.banco:'')) : '—'; }
+function escHtml(s){ return (s??'').toString().replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escAttr(s){ return escHtml(s); }
+
+/* ---------------- CONTAS BANCÁRIAS ---------------- */
+function renderContas(){
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Nova conta bancária</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.4fr 1fr 0.8fr 0.8fr 1fr auto;">
+      <div class="field"><label>Nome da conta</label><input id="ctNome" placeholder="Ex: Conta principal"></div>
+      <div class="field"><label>Banco</label><input id="ctBanco" placeholder="Ex: Banco do Brasil"></div>
+      <div class="field"><label>Agência</label><input id="ctAgencia" placeholder="0001"></div>
+      <div class="field"><label>Conta</label><input id="ctNumero" placeholder="00000-0"></div>
+      <div class="field"><label>Saldo inicial</label><input class="num" id="ctSaldo" type="number" step="0.01" placeholder="0,00"></div>
+      <button class="btn btn-primary" id="addConta">Adicionar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Contas cadastradas</h2><span class="badge-count">${state.contas.length}</span></div>
+    ${state.contas.length===0? '<div class="empty">Nenhuma conta cadastrada ainda.</div>' : `
+    <table><thead><tr><th>Conta</th><th>Banco</th><th>Agência / Conta</th><th class="num">Saldo atual</th><th></th></tr></thead>
+    <tbody>${state.contas.map(c=>`
+      <tr>
+        <td>${escHtml(c.nome)}</td>
+        <td class="muted">${escHtml(c.banco||'—')}</td>
+        <td class="muted">${escHtml(c.agencia||'—')} / ${escHtml(c.numero||'—')}</td>
+        <td class="num ${saldoConta(c.id)>=0?'pos':'neg'}">${fmtMoney(saldoConta(c.id))}</td>
+        <td><button class="btn-danger-ghost" data-del-conta="${c.id}">Excluir</button></td>
+      </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+/* ---------------- EXTRATO BANCÁRIO ---------------- */
+let extratoContaSel = null;
+function renderExtrato(){
+  if(state.contas.length===0){
+    return `<div class="card"><div class="empty">Cadastre uma conta bancária primeiro, na aba "Contas bancárias".</div></div>`;
+  }
+  if(!extratoContaSel || !state.contas.find(c=>c.id===extratoContaSel)) extratoContaSel = state.contas[0].id;
+  const txs = state.transacoes.filter(t=>t.contaId===extratoContaSel).sort((a,b)=> a.data.localeCompare(b.data));
+  let saldoCorrido = state.contas.find(c=>c.id===extratoContaSel).saldoInicial||0;
+  const linhas = txs.map(t=>{
+    saldoCorrido += (t.tipo==='credito'? t.valor : -t.valor);
+    return {t, saldo:saldoCorrido};
+  }).reverse();
+  return `
+  <div class="card">
+    <div class="card-head">
+      <h2>Selecione a conta</h2>
+    </div>
+    <select id="extratoConta" style="width:280px;">
+      ${state.contas.map(c=>`<option value="${c.id}" ${c.id===extratoContaSel?'selected':''}>${escHtml(c.nome)}${c.banco? ' · '+escHtml(c.banco):''}</option>`).join('')}
+    </select>
+    <span class="pill ${saldoConta(extratoContaSel)>=0?'green':'red'}" style="margin-left:10px;">Saldo atual: ${fmtMoney(saldoConta(extratoContaSel))}</span>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Novo lançamento</h2></div>
+    <div class="form-grid" style="grid-template-columns:0.9fr 1.6fr 0.9fr 0.9fr 1.6fr auto;">
+      <div class="field"><label>Data</label><input type="date" id="txData" value="${todayISO()}"></div>
+      <div class="field"><label>Descrição</label><input id="txDesc" placeholder="Ex: Pagamento cliente X"></div>
+      <div class="field"><label>Tipo</label><select id="txTipo"><option value="credito">Entrada</option><option value="debito">Saída</option></select></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="txValor" placeholder="0,00"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" id="addTx">Adicionar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Lançamentos</h2><span class="badge-count">${txs.length}</span></div>
+    ${linhas.length===0? '<div class="empty">Nenhum lançamento nesta conta ainda.</div>' : `
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
+    <tbody>${linhas.map(({t,saldo})=>`
+      <tr>
+        <td>${fmtDate(t.data)}</td>
+        <td>${escHtml(t.descricao)}</td>
+        <td class="muted">${escHtml(catLabel(t.categoria))}</td>
+        <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
+        <td class="num">${fmtMoney(saldo)}</td>
+        <td><button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button></td>
+      </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+/* ---------------- CONTAS A PAGAR / A RECEBER ---------------- */
+function statusConta(item){
+  if(item.status==='pago') return 'pago';
+  if(item.vencimento && item.vencimento < todayISO()) return 'atrasado';
+  return 'pendente';
+}
+function pillConta(st){
+  if(st==='pago') return {c:'green', l:'Pago'};
+  if(st==='atrasado') return {c:'red', l:'Atrasado'};
+  return {c:'amber', l:'Pendente'};
+}
+function renderBlocoContas(tipo){
+  const lista = (tipo==='pagar'? state.contasPagar : state.contasReceber).slice()
+    .sort((a,b)=> (a.vencimento||'').localeCompare(b.vencimento||''));
+  const pendentes = lista.filter(i=> statusConta(i)!=='pago');
+  const totalPendente = pendentes.reduce((s,i)=> s+i.valor, 0);
+  const totalAtrasado = lista.filter(i=> statusConta(i)==='atrasado').reduce((s,i)=> s+i.valor, 0);
+  const idPrefix = tipo==='pagar'? 'pg' : 'rc';
+  const label = tipo==='pagar'? 'pagar' : 'receber';
+  const pessoaLabel = tipo==='pagar'? 'Fornecedor' : 'Cliente';
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Total a ${label}</div><div class="value">${fmtMoney(totalPendente)}</div></div>
+    <div class="kpi"><div class="label">Em atraso</div><div class="value ${totalAtrasado>0?'neg':''}">${fmtMoney(totalAtrasado)}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Nova conta a ${label}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.4fr 1.1fr 0.9fr 1fr 1.3fr auto;">
+      <div class="field"><label>Descrição</label><input id="${idPrefix}Desc" placeholder="Ex: ${tipo==='pagar'?'Aluguel do escritório':'Serviço prestado ao cliente X'}"></div>
+      <div class="field"><label>${pessoaLabel}</label><input id="${idPrefix}Parte" placeholder="Nome"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="${idPrefix}Valor" placeholder="0,00"></div>
+      <div class="field"><label>Vencimento</label><input type="date" id="${idPrefix}Venc" value="${todayISO()}"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${CATEGORIAS.map(c=>`<option value="${c.id}" ${c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':''}>${c.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" data-add-conta="${tipo}">Adicionar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>${tipo==='pagar'?'Contas a pagar':'Contas a receber'}</h2><span class="badge-count">${lista.length}</span></div>
+    ${lista.length===0? `<div class="empty">Nenhuma conta a ${label} cadastrada ainda.</div>` : `
+    <table><thead><tr><th>Descrição</th><th>${pessoaLabel}</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${lista.map(i=>{
+      const st = statusConta(i);
+      const pill = pillConta(st);
+      return `<tr>
+        <td>${escHtml(i.descricao)}</td>
+        <td class="muted">${escHtml(i.parte||'—')}</td>
+        <td class="muted">${fmtDate(i.vencimento)}</td>
+        <td class="num">${fmtMoney(i.valor)}</td>
+        <td><span class="pill ${pill.c}">${pill.l}</span></td>
+        <td style="white-space:nowrap;">
+          ${st!=='pago'? `
+          <select data-conta-select="${tipo}:${i.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
+            ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+          </select>
+          <button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>`:''}
+          <button class="btn-danger-ghost" data-del-conta-mov="${tipo}:${i.id}">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+function renderContasPagarReceber(){
+  if(state.contas.length===0){
+    return `<div class="card"><div class="empty">Cadastre uma conta bancária primeiro, na aba "Contas bancárias" — ela é usada para registrar pagamentos e recebimentos no extrato.</div></div>`;
+  }
+  return `
+  <div class="card-head" style="margin-bottom:6px;"><h2 style="font-size:16px;">A pagar</h2></div>
+  ${renderBlocoContas('pagar')}
+  <div class="card-head" style="margin:26px 0 6px;"><h2 style="font-size:16px;">A receber</h2></div>
+  ${renderBlocoContas('receber')}
+  `;
+}
+
+/* ---------------- FORNECEDORES ---------------- */
+let fornecedorBusca = '';
+function renderFornecedores(){
+  const busca = fornecedorBusca.toLowerCase();
+  const lista = state.fornecedores
+    .filter(f=> !busca || f.nome.toLowerCase().includes(busca) || (f.categoria||'').toLowerCase().includes(busca))
+    .slice().sort((a,b)=> a.nome.localeCompare(b.nome));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Novo fornecedor</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr auto;">
+      <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do fornecedor"></div>
+      <div class="field"><label>CNPJ / CPF</label><input id="fnDoc" placeholder="00.000.000/0000-00"></div>
+      <div class="field"><label>Telefone</label><input id="fnTelefone" placeholder="(00) 00000-0000"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="fnEmail" placeholder="contato@fornecedor.com"></div>
+      <button class="btn btn-primary" id="addFornecedor">Adicionar</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 2fr; margin-top:2px;">
+      <div class="field"><label>Categoria / o que fornece</label><input id="fnCategoria" placeholder="Ex: Contabilidade, Material de escritório..."></div>
+      <div class="field"><label>Cidade / UF</label><input id="fnEndereco" placeholder="Ex: São Paulo/SP"></div>
+      <div class="field"><label>Observações</label><input id="fnObs" placeholder="Condições de pagamento, contato responsável..."></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Fornecedores cadastrados</h2>
+      <input id="fornecedorBusca" placeholder="Buscar por nome ou categoria..." style="width:240px;" value="${escAttr(fornecedorBusca)}">
+    </div>
+    ${lista.length===0? '<div class="empty">Nenhum fornecedor cadastrado ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:10px;">
+    ${lista.map(f=>`
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-weight:500; font-size:14.5px;">${escHtml(f.nome)}</span>
+            ${f.categoria? `<span class="pill gray">${escHtml(f.categoria)}</span>` : ''}
+          </div>
+          <button class="btn-danger-ghost" data-del-fornecedor="${f.id}">Excluir</button>
+        </div>
+        <table style="font-size:12.5px;"><tbody>
+          <tr>
+            <td class="muted" style="width:110px; padding-left:0;">CNPJ / CPF</td><td>${escHtml(f.doc||'—')}</td>
+            <td class="muted" style="width:90px;">Telefone</td><td>${escHtml(f.telefone||'—')}</td>
+          </tr>
+          <tr>
+            <td class="muted" style="padding-left:0;">E-mail</td><td>${escHtml(f.email||'—')}</td>
+            <td class="muted">Cidade/UF</td><td>${escHtml(f.endereco||'—')}</td>
+          </tr>
+        </tbody></table>
+        ${f.obs? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--line);">
+          <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px;">Observações</div>
+          <div style="font-size:13px;">${escHtml(f.obs)}</div>
+        </div>` : ''}
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+
+/* ---------------- NOTAS FISCAIS ---------------- */
+const NOTA_TIPOS = {
+  emitida: {label:'Emitida (venda)', pill:'green'},
+  recebida: {label:'Recebida (compra)', pill:'gray'},
+  comissao: {label:'Comissão', pill:'amber'},
+  nota_comissao: {label:'Nota de comissão', pill:'amber'}
+};
+function renderNotas(){
+  const notas = [...state.notas].sort((a,b)=> b.data.localeCompare(a.data));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Nova nota fiscal</h2></div>
+    <div class="form-grid" style="grid-template-columns:0.8fr 1.1fr 1.4fr 0.9fr 1fr 1fr auto;">
+      <div class="field"><label>Número</label><input id="nfNumero" placeholder="0001"></div>
+      <div class="field"><label>Tipo</label><select id="nfTipo">
+        <option value="emitida">Emitida (venda)</option>
+        <option value="recebida">Recebida (compra)</option>
+        <option value="comissao">Comissão</option>
+        <option value="nota_comissao">Nota de comissão</option>
+      </select></div>
+      <div class="field"><label>Cliente / Fornecedor</label><input id="nfParte" placeholder="Nome"></div>
+      <div class="field"><label>Data</label><input type="date" id="nfData" value="${todayISO()}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="nfValor" placeholder="0,00"></div>
+      <div class="field"><label>Status</label><select id="nfStatus"><option value="emitida">Em aberto</option><option value="paga">Paga</option><option value="cancelada">Cancelada</option></select></div>
+      <button class="btn btn-primary" id="addNota">Adicionar</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Observações</label><input id="nfObs" placeholder="Detalhes sobre esta nota..."></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
+    ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
+    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Observações</th><th></th></tr></thead>
+    <tbody>${notas.map(n=>{
+      const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
+      return `<tr>
+        <td>${escHtml(n.numero)}</td>
+        <td><span class="pill ${t.pill}">${t.label}</span></td>
+        <td>${escHtml(n.parte)}</td>
+        <td class="muted">${fmtDate(n.data)}</td>
+        <td class="num">${fmtMoney(n.valor)}</td>
+        <td><span class="pill ${n.status==='paga'?'green':n.status==='cancelada'?'red':'amber'}">${n.status==='paga'?'Paga':n.status==='cancelada'?'Cancelada':'Em aberto'}</span></td>
+        <td class="muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
+        <td><button class="btn-danger-ghost" data-del-nota="${n.id}">Excluir</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`}
+    <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Use esta aba para controlar a emissão e o status das notas fiscais.</div>
+  </div>`;
+}
+
+/* ---------------- CLIENTES / CONSÓRCIOS ---------------- */
+const STATUS_CLIENTE = {
+  fechado: {label:'Fechado', pill:'green'},
+  negociacao: {label:'Em negociação', pill:'amber'},
+  perdido: {label:'Perdido', pill:'red'}
+};
+let clienteFiltro = 'todos';
+function renderClientes(){
+  const todos = state.clientes;
+  const fechados = todos.filter(c=>c.status==='fechado');
+  const negociacao = todos.filter(c=>c.status==='negociacao');
+  const perdidos = todos.filter(c=>c.status==='perdido');
+  const valorFechado = fechados.reduce((s,c)=> s+(c.valor||0), 0);
+  const valorNegociacao = negociacao.reduce((s,c)=> s+(c.valor||0), 0);
+  const lista = (clienteFiltro==='todos'? todos : todos.filter(c=>c.status===clienteFiltro))
+    .slice().sort((a,b)=> (b.data||'').localeCompare(a.data||''));
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Consórcios fechados</div><div class="value pos">${fechados.length} <span style="font-size:13px; color:var(--ink-faint); font-weight:400;">· ${fmtMoney(valorFechado)}</span></div></div>
+    <div class="kpi"><div class="label">Em negociação</div><div class="value">${negociacao.length} <span style="font-size:13px; color:var(--ink-faint); font-weight:400;">· ${fmtMoney(valorNegociacao)}</span></div></div>
+    <div class="kpi"><div class="label">Perdidos</div><div class="value neg">${perdidos.length}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Novo cliente</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr auto;">
+      <div class="field"><label>Nome do cliente</label><input id="clNome" placeholder="Nome completo"></div>
+      <div class="field"><label>Telefone</label><input id="clContato" placeholder="(00) 00000-0000"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="clEmail" placeholder="cliente@email.com"></div>
+      <div class="field"><label>Tipo de consórcio</label><input id="clTipo" placeholder="Ex: Imóvel, Veículo..."></div>
+      <button class="btn btn-primary" id="addCliente">Adicionar</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Nº do contrato</label><input id="clContrato" placeholder="Ex: 000123"></div>
+      <div class="field"><label>Cota</label><input id="clCota" placeholder="Ex: 0456"></div>
+      <div class="field"><label>Administradora</label><input id="clAdmin" placeholder="Ex: Porto, Embracon..."></div>
+      <div class="field"><label>Valor da carta</label><input class="num" type="number" step="0.01" id="clValor" placeholder="0,00"></div>
+      <div class="field"><label>Situação</label><select id="clStatus">
+        <option value="negociacao">Em negociação</option>
+        <option value="fechado">Fechado</option>
+        <option value="perdido">Perdido</option>
+      </select></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 3fr; margin-top:2px;">
+      <div class="field"><label>Data do contato</label><input type="date" id="clData" value="${todayISO()}"></div>
+      <div class="field"><label>Observações</label><input id="clObs" placeholder="Detalhes, motivo da perda, próximos passos..."></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Clientes</h2>
+      <select id="clienteFiltro" style="width:180px;">
+        <option value="todos" ${clienteFiltro==='todos'?'selected':''}>Todos</option>
+        <option value="fechado" ${clienteFiltro==='fechado'?'selected':''}>Fechados</option>
+        <option value="negociacao" ${clienteFiltro==='negociacao'?'selected':''}>Em negociação</option>
+        <option value="perdido" ${clienteFiltro==='perdido'?'selected':''}>Perdidos</option>
+      </select>
+    </div>
+    ${lista.length===0? '<div class="empty">Nenhum cliente nesta situação ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:10px;">
+    ${lista.map(c=>`
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-weight:500; font-size:14.5px;">${escHtml(c.nome)}</span>
+            <select data-status-cliente="${c.id}" class="pill-select" style="width:auto; padding:2px 8px; font-size:11px; border-radius:20px;">
+              <option value="negociacao" ${c.status==='negociacao'?'selected':''}>Em negociação</option>
+              <option value="fechado" ${c.status==='fechado'?'selected':''}>Fechado</option>
+              <option value="perdido" ${c.status==='perdido'?'selected':''}>Perdido</option>
+            </select>
+          </div>
+          <button class="btn-danger-ghost" data-del-cliente="${c.id}">Excluir</button>
+        </div>
+        <table style="font-size:12.5px;"><tbody>
+          <tr>
+            <td class="muted" style="width:110px; padding-left:0;">Telefone</td><td>${escHtml(c.contato||'—')}</td>
+            <td class="muted" style="width:90px;">E-mail</td><td>${escHtml(c.email||'—')}</td>
+          </tr>
+          <tr>
+            <td class="muted" style="padding-left:0;">Tipo</td><td>${escHtml(c.tipo||'—')}</td>
+            <td class="muted">Valor</td><td>${c.valor? fmtMoney(c.valor) : '—'}</td>
+          </tr>
+          <tr>
+            <td class="muted" style="padding-left:0;">Nº contrato</td><td>${escHtml(c.contrato||'—')}</td>
+            <td class="muted">Cota</td><td>${escHtml(c.cota||'—')}</td>
+          </tr>
+          <tr>
+            <td class="muted" style="padding-left:0;">Administradora</td><td>${escHtml(c.admin||'—')}</td>
+            <td class="muted">Data</td><td>${fmtDate(c.data)||'—'}</td>
+          </tr>
+        </tbody></table>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--line);">
+          <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px;">Observações</div>
+          <div style="font-size:13px;">${escHtml(c.obs||'—')}</div>
+        </div>
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+
+/* ---------------- DRE ---------------- */
+let dreMes = new Date().getMonth();
+let dreAno = new Date().getFullYear();
+function renderDRE(){
+  const d = calcularDRE(dreMes, dreAno);
+  const anos = Array.from(new Set(state.transacoes.map(t=> new Date(t.data+'T00:00:00').getFullYear())));
+  if(!anos.includes(dreAno)) anos.push(dreAno);
+  anos.sort();
+  const line = (lbl,val,opts={})=>`<div class="dre-line ${opts.total?'total':''} ${opts.sub?'sub':''}"><div class="lbl">${lbl}</div><div class="num ${val<0?'neg':opts.total?(val>=0?'pos':'neg'):''}">${fmtMoney(val)}</div></div>`;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Período</h2></div>
+    <select id="dreMes">${MESES.map((m,i)=>`<option value="${i}" ${i===dreMes?'selected':''}>${m}</option>`).join('')}</select>
+    <select id="dreAno">${anos.map(a=>`<option value="${a}" ${a===dreAno?'selected':''}>${a}</option>`).join('')}</select>
+    <div class="hint" style="margin-top:8px;">Calculada por regime de caixa, a partir das categorias lançadas no extrato bancário.</div>
+  </div>
+  <div class="card">
+    ${line('Receita bruta de serviços', d.receitaBruta)}
+    ${line('(-) Impostos e deduções sobre serviços', -d.deducoes, {sub:true})}
+    ${line('(=) Receita líquida', d.receitaLiquida, {total:true})}
+    ${line('(-) Custo dos serviços prestados', -d.custoServicos, {sub:true})}
+    ${line('(=) Lucro bruto', d.lucroBruto, {total:true})}
+    <div class="dre-section-title">Despesas operacionais</div>
+    ${line('Pessoal', -d.despPessoal, {sub:true})}
+    ${line('Administrativas', -d.despAdmin, {sub:true})}
+    ${line('Comerciais / marketing', -d.despComercial, {sub:true})}
+    ${line('(=) Resultado operacional', d.resultadoOperacional, {total:true})}
+    <div class="dre-section-title">Resultado financeiro</div>
+    ${line('Receitas financeiras', d.receitaFin, {sub:true})}
+    ${line('Despesas financeiras', -d.despFin, {sub:true})}
+    <div class="dre-section-title">Outros</div>
+    ${line('Outras receitas', d.outrasReceitas, {sub:true})}
+    ${line('Outras despesas', -d.outrasDespesas, {sub:true})}
+    ${line('(=) Resultado líquido do período', d.resultadoLiquido, {total:true})}
+  </div>`;
+}
+
+/* ---------------- BALANCETE ---------------- */
+function renderBalancete(){
+  const totalCaixa = state.contas.reduce((s,c)=> s + saldoConta(c.id), 0);
+  const {receitas, despesas} = totalReceitasDespesasGeral();
+  const grupos = ['Ativo','Passivo','Patrimônio Líquido','Resultado'];
+  let totalD=0, totalC=0;
+  const linhas = state.plano.map(p=>{
+    let saldo = p.saldoManual || 0;
+    if(p.auto==='caixa'||p.auto==='bancos'){
+      saldo = 0;
+    }
+    return p;
+  });
+  const contasAutoBanco = state.plano.filter(p=>p.auto==='caixa'||p.auto==='bancos');
+  const linhasCalc = state.plano.map(p=>{
+    let saldo;
+    if(p.auto==='caixa'||p.auto==='bancos'){
+      saldo = contasAutoBanco[0] && contasAutoBanco[0].id===p.id ? totalCaixa : 0;
+    } else if(p.auto==='receitas'){
+      saldo = receitas;
+    } else if(p.auto==='despesas'){
+      saldo = despesas;
+    } else {
+      saldo = p.saldoManual||0;
+    }
+    const devedor = p.natureza==='D'? saldo : 0;
+    const credor = p.natureza==='C'? saldo : 0;
+    totalD += devedor; totalC += credor;
+    return {...p, devedor, credor};
+  });
+  const diff = totalD - totalC;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Adicionar conta contábil</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1.6fr 0.8fr 1fr auto;">
+      <div class="field"><label>Grupo</label><select id="bcGrupo">${grupos.map(g=>`<option value="${g}">${g}</option>`).join('')}</select></div>
+      <div class="field"><label>Nome da conta</label><input id="bcConta" placeholder="Ex: Adiantamento a fornecedores"></div>
+      <div class="field"><label>Natureza</label><select id="bcNatureza"><option value="D">Devedora</option><option value="C">Credora</option></select></div>
+      <div class="field"><label>Saldo</label><input class="num" type="number" step="0.01" id="bcSaldo" placeholder="0,00"></div>
+      <button class="btn btn-primary" id="addPlano">Adicionar</button>
+    </div>
+  </div>
+  ${grupos.map(g=>{
+    const rows = linhasCalc.filter(l=>l.grupo===g);
+    if(rows.length===0) return '';
+    return `<div class="card">
+      <div class="card-head"><h2>${g}</h2></div>
+      <table><thead><tr><th>Conta</th><th class="num">Devedor</th><th class="num">Credor</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`
+        <tr>
+          <td>${escHtml(r.conta)}${r.auto?` <span class="muted" style="font-size:11px;">(automático)</span>`:''}</td>
+          <td class="num">${r.devedor? fmtMoney(r.devedor) : '—'}</td>
+          <td class="num">${r.credor? fmtMoney(r.credor) : '—'}</td>
+          <td>${r.auto? '' : `<button class="btn-danger-ghost" data-del-plano="${r.id}">Excluir</button>`}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  }).join('')}
+  <div class="card">
+    <div class="card-head"><h2>Totais</h2></div>
+    <div class="dre-line total"><div class="lbl">Total devedor</div><div class="num">${fmtMoney(totalD)}</div></div>
+    <div class="dre-line total"><div class="lbl">Total credor</div><div class="num">${fmtMoney(totalC)}</div></div>
+    <div class="dre-line total"><div class="lbl">Diferença</div><div class="num ${Math.abs(diff)<0.01?'pos':'neg'}">${fmtMoney(diff)}</div></div>
+    ${Math.abs(diff)>=0.01? '<div class="hint" style="margin-top:8px;">O balancete não fechou. Ajuste os saldos das contas de Ativo, Passivo e Patrimônio Líquido para refletir a posição real da empresa.</div>':''}
+  </div>`;
+}
+
+/* ---------------- Handlers ---------------- */
+function attachHandlers(){
+  const empresaNomeInput = document.getElementById('empresaNomeInput');
+  if(empresaNomeInput){
+    document.getElementById('salvarEmpresa').onclick = async ()=>{
+      state.empresa.nome = empresaNomeInput.value.trim() || 'Minha Empresa';
+      await saveState(); render();
+    };
+  }
+
+  const exportarBackup = document.getElementById('exportarBackup');
+  if(exportarBackup){
+    exportarBackup.onclick = ()=>{
+      const dataStr = JSON.stringify(state, null, 2);
+      const blob = new Blob([dataStr], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dataHoje = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `backup-erp-${dataHoje}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+  }
+  const importarBackupInput = document.getElementById('importarBackupInput');
+  if(importarBackupInput){
+    importarBackupInput.onchange = ()=>{
+      const file = importarBackupInput.files[0];
+      const msg = document.getElementById('importarMsg');
+      if(!file) return;
+      if(!confirm('Isso vai substituir todos os dados atuais pelos dados deste backup. Deseja continuar?')){
+        importarBackupInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async (e)=>{
+        try{
+          const parsed = JSON.parse(e.target.result);
+          if(typeof parsed !== 'object' || parsed===null) throw new Error('formato inválido');
+          state = Object.assign({
+            empresa:{nome:'Minha Empresa'}, contas:[], transacoes:[], notas:[],
+            plano:[], clientes:[], contasPagar:[], contasReceber:[], fornecedores:[]
+          }, parsed);
+          if(!state.plano || state.plano.length===0) state.plano = planoPadrao();
+          await saveState();
+          msg.style.color='var(--accent-dark)';
+          msg.textContent = 'Backup importado com sucesso.';
+          render();
+        }catch(err){
+          msg.style.color='var(--danger)';
+          msg.textContent = 'Não foi possível ler este arquivo. Confirme se é um backup exportado por este ERP.';
+        }
+      };
+      reader.readAsText(file);
+    };
+  }
+
+  const salvarAcesso = document.getElementById('salvarAcesso');
+  if(salvarAcesso){
+    salvarAcesso.onclick = async ()=>{
+      const usuario = document.getElementById('acUsuario').value.trim();
+      const senha = document.getElementById('acSenha').value;
+      const senha2 = document.getElementById('acSenha2').value;
+      const msg = document.getElementById('acessoMsg');
+      if(!usuario){ msg.style.color='var(--danger)'; msg.textContent='Confirme o usuário atual.'; return; }
+      if(!senha || senha.length<4){ msg.style.color='var(--danger)'; msg.textContent='A senha precisa ter pelo menos 4 caracteres.'; return; }
+      if(senha!==senha2){ msg.style.color='var(--danger)'; msg.textContent='As senhas não coincidem.'; return; }
+      try{
+        const r = await fetch('/api/auth/change-password', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+          body: JSON.stringify({usuarioAtual:usuario, novaSenha:senha})
+        });
+        if(r.ok){
+          msg.style.color='var(--accent-dark)'; msg.textContent='Senha atualizada com sucesso.';
+        } else {
+          const j = await r.json().catch(()=>({erro:'Não foi possível atualizar.'}));
+          msg.style.color='var(--danger)'; msg.textContent = j.erro || 'Não foi possível atualizar.';
+        }
+      }catch(e){
+        msg.style.color='var(--danger)'; msg.textContent='Erro de conexão com o servidor.';
+      }
+    };
+  }
+
+  const addFornecedor = document.getElementById('addFornecedor');
+  if(addFornecedor){
+    addFornecedor.onclick = async ()=>{
+      const nome = document.getElementById('fnNome').value.trim();
+      if(!nome){ document.getElementById('fnNome').focus(); return; }
+      state.fornecedores.push({
+        id: uid(), nome,
+        doc: document.getElementById('fnDoc').value.trim(),
+        telefone: document.getElementById('fnTelefone').value.trim(),
+        email: document.getElementById('fnEmail').value.trim(),
+        categoria: document.getElementById('fnCategoria').value.trim(),
+        endereco: document.getElementById('fnEndereco').value.trim(),
+        obs: document.getElementById('fnObs').value.trim()
+      });
+      await saveState(); render();
+    };
+  }
+  const fornecedorBuscaInput = document.getElementById('fornecedorBusca');
+  if(fornecedorBuscaInput) fornecedorBuscaInput.onchange = ()=>{ fornecedorBusca = fornecedorBuscaInput.value; render(); };
+  document.querySelectorAll('[data-del-fornecedor]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Excluir este fornecedor?')) return;
+    state.fornecedores = state.fornecedores.filter(f=>f.id!==b.dataset.delFornecedor);
+    await saveState(); render();
+  });
+
+  const addConta = document.getElementById('addConta');
+  if(addConta){
+    addConta.onclick = async ()=>{
+      const nome = document.getElementById('ctNome').value.trim();
+      if(!nome){ document.getElementById('ctNome').focus(); return; }
+      state.contas.push({
+        id: uid(), nome,
+        banco: document.getElementById('ctBanco').value.trim(),
+        agencia: document.getElementById('ctAgencia').value.trim(),
+        numero: document.getElementById('ctNumero').value.trim(),
+        saldoInicial: parseFloat(document.getElementById('ctSaldo').value)||0
+      });
+      await saveState(); render();
+    };
+  }
+  document.querySelectorAll('[data-del-conta]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Excluir esta conta e todos os lançamentos vinculados a ela?')) return;
+    const id = b.dataset.delConta;
+    state.contas = state.contas.filter(c=>c.id!==id);
+    state.transacoes = state.transacoes.filter(t=>t.contaId!==id);
+    await saveState(); render();
+  });
+
+  const extratoConta = document.getElementById('extratoConta');
+  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; render(); };
+
+  const addTx = document.getElementById('addTx');
+  if(addTx){
+    addTx.onclick = async ()=>{
+      const desc = document.getElementById('txDesc').value.trim();
+      const valor = parseFloat(document.getElementById('txValor').value);
+      if(!desc || !valor){ return; }
+      state.transacoes.push({
+        id: uid(), contaId: extratoContaSel,
+        data: document.getElementById('txData').value || todayISO(),
+        descricao: desc,
+        tipo: document.getElementById('txTipo').value,
+        valor: Math.abs(valor),
+        categoria: document.getElementById('txCategoria').value
+      });
+      await saveState(); render();
+    };
+  }
+  document.querySelectorAll('[data-del-tx]').forEach(b=> b.onclick = async ()=>{
+    state.transacoes = state.transacoes.filter(t=>t.id!==b.dataset.delTx);
+    await saveState(); render();
+  });
+
+  const addNota = document.getElementById('addNota');
+  if(addNota){
+    addNota.onclick = async ()=>{
+      const numero = document.getElementById('nfNumero').value.trim();
+      const parte = document.getElementById('nfParte').value.trim();
+      const valor = parseFloat(document.getElementById('nfValor').value);
+      if(!numero || !parte || !valor){ return; }
+      state.notas.push({
+        id: uid(), numero, parte,
+        tipo: document.getElementById('nfTipo').value,
+        data: document.getElementById('nfData').value || todayISO(),
+        valor: Math.abs(valor),
+        status: document.getElementById('nfStatus').value,
+        obs: document.getElementById('nfObs').value.trim()
+      });
+      await saveState(); render();
+    };
+  }
+  document.querySelectorAll('[data-del-nota]').forEach(b=> b.onclick = async ()=>{
+    state.notas = state.notas.filter(n=>n.id!==b.dataset.delNota);
+    await saveState(); render();
+  });
+
+  document.querySelectorAll('[data-add-conta]').forEach(btn=> btn.onclick = async ()=>{
+    const tipo = btn.dataset.addConta;
+    const p = tipo==='pagar'? 'pg' : 'rc';
+    const desc = document.getElementById(p+'Desc').value.trim();
+    const valor = parseFloat(document.getElementById(p+'Valor').value);
+    if(!desc || !valor){ return; }
+    const item = {
+      id: uid(),
+      descricao: desc,
+      parte: document.getElementById(p+'Parte').value.trim(),
+      valor: Math.abs(valor),
+      vencimento: document.getElementById(p+'Venc').value || todayISO(),
+      categoria: document.getElementById(p+'Cat').value,
+      status: 'pendente'
+    };
+    if(tipo==='pagar') state.contasPagar.push(item); else state.contasReceber.push(item);
+    await saveState(); render();
+  });
+
+  document.querySelectorAll('[data-pay-conta]').forEach(btn=> btn.onclick = async ()=>{
+    const [tipo, id] = btn.dataset.payConta.split(':');
+    const lista = tipo==='pagar'? state.contasPagar : state.contasReceber;
+    const item = lista.find(i=>i.id===id);
+    if(!item) return;
+    const sel = document.querySelector(`[data-conta-select="${tipo}:${id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId) return;
+    item.status = 'pago';
+    item.contaId = contaId;
+    item.dataPagamento = todayISO();
+    state.transacoes.push({
+      id: uid(), contaId,
+      data: todayISO(),
+      descricao: (tipo==='pagar'? 'Pagamento: ' : 'Recebimento: ') + item.descricao + (item.parte? ' — '+item.parte : ''),
+      tipo: tipo==='pagar'? 'debito' : 'credito',
+      valor: item.valor,
+      categoria: item.categoria
+    });
+    await saveState(); render();
+  });
+
+  document.querySelectorAll('[data-del-conta-mov]').forEach(btn=> btn.onclick = async ()=>{
+    const [tipo, id] = btn.dataset.delContaMov.split(':');
+    if(tipo==='pagar') state.contasPagar = state.contasPagar.filter(i=>i.id!==id);
+    else state.contasReceber = state.contasReceber.filter(i=>i.id!==id);
+    await saveState(); render();
+  });
+
+  const addCliente = document.getElementById('addCliente');
+  if(addCliente){
+    addCliente.onclick = async ()=>{
+      const nome = document.getElementById('clNome').value.trim();
+      if(!nome){ document.getElementById('clNome').focus(); return; }
+      state.clientes.push({
+        id: uid(), nome,
+        contato: document.getElementById('clContato').value.trim(),
+        email: document.getElementById('clEmail').value.trim(),
+        tipo: document.getElementById('clTipo').value.trim(),
+        contrato: document.getElementById('clContrato').value.trim(),
+        cota: document.getElementById('clCota').value.trim(),
+        admin: document.getElementById('clAdmin').value.trim(),
+        valor: parseFloat(document.getElementById('clValor').value)||0,
+        status: document.getElementById('clStatus').value,
+        data: document.getElementById('clData').value || todayISO(),
+        obs: document.getElementById('clObs').value.trim()
+      });
+      await saveState(); render();
+    };
+  }
+  const clienteFiltroSel = document.getElementById('clienteFiltro');
+  if(clienteFiltroSel) clienteFiltroSel.onchange = ()=>{ clienteFiltro = clienteFiltroSel.value; render(); };
+  document.querySelectorAll('[data-status-cliente]').forEach(sel=> sel.onchange = async ()=>{
+    const c = state.clientes.find(c=>c.id===sel.dataset.statusCliente);
+    if(c){ c.status = sel.value; await saveState(); render(); }
+  });
+  document.querySelectorAll('[data-del-cliente]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Excluir este cliente?')) return;
+    state.clientes = state.clientes.filter(c=>c.id!==b.dataset.delCliente);
+    await saveState(); render();
+  });
+
+  const dreMesSel = document.getElementById('dreMes');
+  const dreAnoSel = document.getElementById('dreAno');
+  if(dreMesSel) dreMesSel.onchange = ()=>{ dreMes = parseInt(dreMesSel.value); render(); };
+  if(dreAnoSel) dreAnoSel.onchange = ()=>{ dreAno = parseInt(dreAnoSel.value); render(); };
+
+  const addPlano = document.getElementById('addPlano');
+  if(addPlano){
+    addPlano.onclick = async ()=>{
+      const conta = document.getElementById('bcConta').value.trim();
+      if(!conta){ return; }
+      state.plano.push({
+        id: uid(),
+        grupo: document.getElementById('bcGrupo').value,
+        conta,
+        natureza: document.getElementById('bcNatureza').value,
+        saldoManual: parseFloat(document.getElementById('bcSaldo').value)||0
+      });
+      await saveState(); render();
+    };
+  }
+  document.querySelectorAll('[data-del-plano]').forEach(b=> b.onclick = async ()=>{
+    state.plano = state.plano.filter(p=>p.id!==b.dataset.delPlano);
+    await saveState(); render();
+  });
+}
+
+/* ---------------- Autenticação (via servidor) ----------------
+   O login agora é validado no servidor, com a senha guardada de forma
+   protegida (hash) no banco de dados — não mais no navegador. */
+async function statusAuth(){
+  try{
+    const r = await fetch('/api/auth/status', {credentials:'same-origin'});
+    return await r.json();
+  }catch(e){
+    return { existeUsuario:false, logado:false, erro:true };
+  }
+}
+async function criarPrimeiroUsuario(usuario, senha){
+  const r = await fetch('/api/auth/setup', {
+    method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+    body: JSON.stringify({usuario, senha})
+  });
+  return r.ok;
+}
+async function fazerLogin(usuario, senha){
+  const r = await fetch('/api/auth/login', {
+    method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+    body: JSON.stringify({usuario, senha})
+  });
+  return r.ok;
+}
+async function fazerLogout(){
+  await fetch('/api/auth/logout', {method:'POST', credentials:'same-origin'});
+  location.reload();
+}
+function mostrarApp(){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'flex';
+}
+function mostrarLogin(primeiroAcesso){
+  const dica = document.getElementById('loginPrimeiroAcesso');
+  const label = document.getElementById('loginTituloAcao');
+  const btn = document.getElementById('loginBtn');
+  if(primeiroAcesso){
+    dica.textContent = 'Primeiro acesso: crie o usuário e a senha que serão usados para entrar no sistema.';
+    label.textContent = 'Criar conta de acesso';
+    btn.textContent = 'Criar e entrar';
+  } else {
+    dica.textContent = '';
+    label.textContent = 'Entre para acessar o ERP';
+    btn.textContent = 'Entrar';
+  }
+  document.getElementById('loginScreen').dataset.modo = primeiroAcesso ? 'setup' : 'login';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('appRoot').style.display = 'none';
+}
+function renderAcesso(){
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Usuário e senha de acesso</h2></div>
+    <div class="hint" style="margin-bottom:14px;">Essa senha protege a entrada neste ERP. Ela fica guardada de forma protegida no servidor — se trocar, use a nova senha no próximo login.</div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;">
+      <div class="field"><label>Usuário atual</label><input id="acUsuario" placeholder="Confirme o usuário atual"></div>
+      <div class="field"><label>Nova senha</label><input type="password" id="acSenha" placeholder="Digite a nova senha"></div>
+      <div class="field"><label>Confirmar nova senha</label><input type="password" id="acSenha2" placeholder="Repita a nova senha"></div>
+      <button class="btn btn-primary" id="salvarAcesso">Salvar</button>
+    </div>
+    <div id="acessoMsg" style="font-size:12px; margin-top:10px;"></div>
+  </div>`;
+}
+
+function renderBackup(){
+  const totalRegistros = state.contas.length + state.transacoes.length + state.notas.length
+    + state.clientes.length + state.contasPagar.length + state.contasReceber.length + state.fornecedores.length;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Sobre o armazenamento</h2></div>
+    <div class="hint" style="font-size:13px; line-height:1.6;">
+      Agora seus dados ficam guardados em um banco de dados no servidor — não dependem mais deste navegador ou deste computador, e continuam intactos quando eu atualizar o sistema. Ainda assim, é uma boa prática exportar um backup de vez em quando, como uma cópia de segurança extra.
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Exportar backup</h2></div>
+    <div class="hint" style="margin-bottom:12px;">Gera um arquivo .json com todos os dados cadastrados (${totalRegistros} registros ao todo, além das configurações da empresa e do plano de contas).</div>
+    <button class="btn btn-primary" id="exportarBackup">Exportar backup (.json)</button>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Importar backup</h2></div>
+    <div class="hint" style="margin-bottom:12px;">Selecione um arquivo .json exportado anteriormente. Isso <b>substitui todos os dados atuais</b> deste ERP pelos dados do backup.</div>
+    <input type="file" id="importarBackupInput" accept="application/json,.json">
+    <div id="importarMsg" style="font-size:12px; margin-top:10px;"></div>
+  </div>`;
+}
+
+/* ---------------- Init ---------------- */
+async function iniciarApp(){
+  document.getElementById('view').innerHTML = '<div class="card"><div class="empty">Carregando seus dados...</div></div>';
+  await loadState();
+  setTab('dashboard');
+  const logoutBtn = document.getElementById('logoutBtn');
+  if(logoutBtn) logoutBtn.onclick = ()=>{ if(confirm('Sair do sistema?')) fazerLogout(); };
+}
+
+document.getElementById('loginBtn').onclick = async ()=>{
+  const usuario = document.getElementById('loginUsuario').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  const erro = document.getElementById('loginErro');
+  const modo = document.getElementById('loginScreen').dataset.modo;
+  if(!usuario || !senha){ erro.textContent = 'Preencha usuário e senha.'; return; }
+  let ok;
+  if(modo==='setup'){
+    if(senha.length<4){ erro.textContent = 'A senha precisa ter pelo menos 4 caracteres.'; return; }
+    ok = await criarPrimeiroUsuario(usuario, senha);
+  } else {
+    ok = await fazerLogin(usuario, senha);
+  }
+  if(ok){
+    erro.textContent = '';
+    mostrarApp();
+    iniciarApp();
+  } else {
+    erro.textContent = modo==='setup' ? 'Não foi possível criar o acesso.' : 'Usuário ou senha incorretos.';
+  }
+};
+document.getElementById('loginSenha').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('loginBtn').click(); });
+document.getElementById('loginUsuario').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('loginSenha').focus(); });
+
+(async function initAuthScreen(){
+  const status = await statusAuth();
+  if(status.logado){
+    mostrarApp();
+    iniciarApp();
+  } else if(!status.existeUsuario){
+    mostrarLogin(true);
+  } else {
+    mostrarLogin(false);
+  }
+})();
+</script>
+</body>
+</html>
