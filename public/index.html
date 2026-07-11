@@ -155,12 +155,13 @@
       </div>
     </div>
     <button class="nav-item" data-tab="dashboard"><span class="nav-dot"></span>Dashboard</button>
+    <button class="nav-item" data-tab="agenda"><span class="nav-dot"></span>Agenda</button>
     <button class="nav-item" data-tab="contas"><span class="nav-dot"></span>Contas bancárias</button>
     <button class="nav-item" data-tab="extrato"><span class="nav-dot"></span>Extrato bancário</button>
     <button class="nav-item" data-tab="apagarreceber"><span class="nav-dot"></span>Contas a pagar/receber</button>
-    <button class="nav-item" data-tab="fornecedores"><span class="nav-dot"></span>Fornecedores</button>
+    <button class="nav-item" data-tab="fornecedores"><span class="nav-dot"></span>Clientes</button>
     <button class="nav-item" data-tab="notas"><span class="nav-dot"></span>Notas fiscais</button>
-    <button class="nav-item" data-tab="clientes"><span class="nav-dot"></span>Clientes / consórcios</button>
+    <button class="nav-item" data-tab="clientes"><span class="nav-dot"></span>Consorciados</button>
     <button class="nav-item" data-tab="dre"><span class="nav-dot"></span>DRE</button>
     <button class="nav-item" data-tab="balancete"><span class="nav-dot"></span>Balancete</button>
     <button class="nav-item" data-tab="acesso"><span class="nav-dot"></span>Acesso e senha</button>
@@ -217,7 +218,8 @@ let state = {
   clientes: [],
   contasPagar: [],
   contasReceber: [],
-  fornecedores: []
+  fornecedores: [],
+  agenda: []
 };
 
 function planoPadrao(){
@@ -250,6 +252,7 @@ async function loadState(){
   if(!state.contasPagar) state.contasPagar = [];
   if(!state.contasReceber) state.contasReceber = [];
   if(!state.fornecedores) state.fornecedores = [];
+  if(!state.agenda) state.agenda = [];
 }
 
 let saveTimer=null;
@@ -332,18 +335,20 @@ function totalReceitasDespesasGeral(){
 /* ---------------- Navegação ---------------- */
 const TITLES = {
   dashboard:['Dashboard','Visão geral da sua empresa de serviços'],
+  agenda:['Agenda','O que precisa ser feito, dia a dia'],
   contas:['Contas bancárias','Cadastre as contas usadas pela empresa'],
   extrato:['Extrato bancário','Lançamentos de entrada e saída por conta'],
   apagarreceber:['Contas a pagar/receber','Controle de vencimentos e pagamentos pendentes'],
-  fornecedores:['Fornecedores','Cadastro de fornecedores e prestadores parceiros'],
+  fornecedores:['Clientes','Cadastro de clientes da empresa'],
   notas:['Notas fiscais','Controle de notas emitidas e recebidas'],
-  clientes:['Clientes / consórcios','Acompanhe quem já fechou, quem está em negociação e quem foi perdido'],
+  clientes:['Consorciados','Acompanhe quem já fechou, quem está em negociação e quem foi perdido'],
   dre:['DRE','Demonstração do Resultado do Exercício, por regime de caixa'],
   balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null };
 function setTab(tab){
   activeTab = tab;
   document.querySelectorAll('.nav-item').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
@@ -358,6 +363,7 @@ function render(){
   const view = document.getElementById('view');
   document.getElementById('empresaNomeSidebar').textContent = state.empresa.nome || 'Minha Empresa';
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
+  if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='contas') view.innerHTML = renderContas();
   if(activeTab==='extrato') view.innerHTML = renderExtrato();
   if(activeTab==='apagarreceber') view.innerHTML = renderContasPagarReceber();
@@ -376,14 +382,27 @@ function renderDashboard(){
   const hoje = new Date();
   const dre = calcularDRE(hoje.getMonth(), hoje.getFullYear());
   const saldo = saldoTotalContas();
-  const notasAbertas = state.notas.filter(n=>n.status==='emitida').length;
+  const notasAbertas = state.notas.filter(n=>n.status!=='paga' && n.status!=='cancelada').length;
   const ultimasTx = [...state.transacoes].sort((a,b)=> b.data.localeCompare(a.data)).slice(0,6);
+  const eventosHoje = eventosDoDia(todayISO());
   return `
+  <div class="card" style="border-color:var(--accent); background:var(--accent-soft);">
+    <div class="card-head"><h2>Hoje · ${fmtDate(todayISO())}</h2><span class="hint">O que precisa da sua atenção</span></div>
+    ${eventosHoje.length===0? '<div class="empty" style="padding:12px 4px;">Nada previsto para hoje. 🎉</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${eventosHoje.map(ev=>`
+        <div style="display:flex; align-items:center; justify-content:between; gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:9px 12px;">
+          <span class="pill ${ev.cor}">${ev.tipoLabel}</span>
+          <span style="flex:1; font-size:13.5px;">${escHtml(ev.titulo)}</span>
+          ${ev.valor? `<span class="num" style="font-size:13px;">${fmtMoney(ev.valor)}</span>` : ''}
+        </div>`).join('')}
+    </div>`}
+  </div>
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Saldo em contas</div><div class="value ${saldo>=0?'pos':'neg'}">${fmtMoney(saldo)}</div></div>
     <div class="kpi"><div class="label">Receita do mês</div><div class="value pos">${fmtMoney(dre.receitaBruta)}</div></div>
     <div class="kpi"><div class="label">Resultado do mês</div><div class="value ${dre.resultadoLiquido>=0?'pos':'neg'}">${fmtMoney(dre.resultadoLiquido)}</div></div>
-    <div class="kpi"><div class="label">Notas fiscais em aberto</div><div class="value">${notasAbertas}</div></div>
+    <div class="kpi"><div class="label">Notas fiscais pendentes</div><div class="value">${notasAbertas}</div></div>
   </div>
   <div class="card">
     <div class="card-head"><h2>Nome da empresa</h2></div>
@@ -407,17 +426,19 @@ function escAttr(s){ return escHtml(s); }
 
 /* ---------------- CONTAS BANCÁRIAS ---------------- */
 function renderContas(){
+  const edit = estadoEdicao.conta ? state.contas.find(c=>c.id===estadoEdicao.conta) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>Nova conta bancária</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar conta bancária' : 'Nova conta bancária'}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.4fr 1fr 0.8fr 0.8fr 1fr auto;">
-      <div class="field"><label>Nome da conta</label><input id="ctNome" placeholder="Ex: Conta principal"></div>
-      <div class="field"><label>Banco</label><input id="ctBanco" placeholder="Ex: Banco do Brasil"></div>
-      <div class="field"><label>Agência</label><input id="ctAgencia" placeholder="0001"></div>
-      <div class="field"><label>Conta</label><input id="ctNumero" placeholder="00000-0"></div>
-      <div class="field"><label>Saldo inicial</label><input class="num" id="ctSaldo" type="number" step="0.01" placeholder="0,00"></div>
-      <button class="btn btn-primary" id="addConta">Adicionar</button>
+      <div class="field"><label>Nome da conta</label><input id="ctNome" placeholder="Ex: Conta principal" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>Banco</label><input id="ctBanco" placeholder="Ex: Banco do Brasil" value="${edit? escAttr(edit.banco||''):''}"></div>
+      <div class="field"><label>Agência</label><input id="ctAgencia" placeholder="0001" value="${edit? escAttr(edit.agencia||''):''}"></div>
+      <div class="field"><label>Conta</label><input id="ctNumero" placeholder="00000-0" value="${edit? escAttr(edit.numero||''):''}"></div>
+      <div class="field"><label>Saldo inicial</label><input class="num" id="ctSaldo" type="number" step="0.01" placeholder="0,00" value="${edit? edit.saldoInicial:''}"></div>
+      <button class="btn btn-primary" id="addConta">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoConta" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>Contas cadastradas</h2><span class="badge-count">${state.contas.length}</span></div>
@@ -429,7 +450,10 @@ function renderContas(){
         <td class="muted">${escHtml(c.banco||'—')}</td>
         <td class="muted">${escHtml(c.agencia||'—')} / ${escHtml(c.numero||'—')}</td>
         <td class="num ${saldoConta(c.id)>=0?'pos':'neg'}">${fmtMoney(saldoConta(c.id))}</td>
-        <td><button class="btn-danger-ghost" data-del-conta="${c.id}">Excluir</button></td>
+        <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-editar-conta="${c.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-conta="${c.id}">Excluir</button>
+        </td>
       </tr>`).join('')}
     </tbody></table>`}
   </div>`;
@@ -437,6 +461,7 @@ function renderContas(){
 
 /* ---------------- EXTRATO BANCÁRIO ---------------- */
 let extratoContaSel = null;
+let ofxPreview = null;
 function renderExtrato(){
   if(state.contas.length===0){
     return `<div class="card"><div class="empty">Cadastre uma conta bancária primeiro, na aba "Contas bancárias".</div></div>`;
@@ -448,6 +473,7 @@ function renderExtrato(){
     saldoCorrido += (t.tipo==='credito'? t.valor : -t.valor);
     return {t, saldo:saldoCorrido};
   }).reverse();
+  const edit = estadoEdicao.tx ? state.transacoes.find(t=>t.id===estadoEdicao.tx) : null;
   return `
   <div class="card">
     <div class="card-head">
@@ -459,15 +485,22 @@ function renderExtrato(){
     <span class="pill ${saldoConta(extratoContaSel)>=0?'green':'red'}" style="margin-left:10px;">Saldo atual: ${fmtMoney(saldoConta(extratoContaSel))}</span>
   </div>
   <div class="card">
-    <div class="card-head"><h2>Novo lançamento</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar lançamento' : 'Novo lançamento'}</h2></div>
     <div class="form-grid" style="grid-template-columns:0.9fr 1.6fr 0.9fr 0.9fr 1.6fr auto;">
-      <div class="field"><label>Data</label><input type="date" id="txData" value="${todayISO()}"></div>
-      <div class="field"><label>Descrição</label><input id="txDesc" placeholder="Ex: Pagamento cliente X"></div>
-      <div class="field"><label>Tipo</label><select id="txTipo"><option value="credito">Entrada</option><option value="debito">Saída</option></select></div>
-      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="txValor" placeholder="0,00"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('')}</select></div>
-      <button class="btn btn-primary" id="addTx">Adicionar</button>
+      <div class="field"><label>Data</label><input type="date" id="txData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Descrição</label><input id="txDesc" placeholder="Ex: Pagamento cliente X" value="${edit? escAttr(edit.descricao):''}"></div>
+      <div class="field"><label>Tipo</label><select id="txTipo"><option value="credito" ${edit&&edit.tipo==='credito'?'selected':''}>Entrada</option><option value="debito" ${edit&&edit.tipo==='debito'?'selected':''}>Saída</option></select></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="txValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit&&edit.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" id="addTx">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoTx" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Importar extrato bancário (OFX)</h2></div>
+    <div class="hint" style="margin-bottom:10px;">Selecione o arquivo .ofx exportado do seu banco. Os lançamentos serão importados para a conta selecionada acima (<b>${escHtml(contaNome(extratoContaSel))}</b>).</div>
+    <input type="file" id="ofxInput" accept=".ofx,.qfx,text/*">
+    ${ofxPreview? renderOfxPreview() : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>Lançamentos</h2><span class="badge-count">${txs.length}</span></div>
@@ -480,10 +513,63 @@ function renderExtrato(){
         <td class="muted">${escHtml(catLabel(t.categoria))}</td>
         <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
         <td class="num">${fmtMoney(saldo)}</td>
-        <td><button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button></td>
+        <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
+        </td>
       </tr>`).join('')}
     </tbody></table>`}
   </div>`;
+}
+function renderOfxPreview(){
+  if(!ofxPreview || ofxPreview.length===0){
+    return `<div class="hint" style="margin-top:10px;">Não encontramos lançamentos nesse arquivo. Confirme se é um arquivo .ofx exportado do internet banking do seu banco.</div>`;
+  }
+  const selecionados = ofxPreview.filter(p=>p.selecionado).length;
+  return `
+  <div style="margin-top:14px;">
+    <div class="hint" style="margin-bottom:8px;">${ofxPreview.length} lançamentos encontrados. Confira as categorias antes de importar — você pode ajustar cada uma.</div>
+    <table><thead><tr><th></th><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Categoria</th></tr></thead>
+    <tbody>${ofxPreview.map((p,i)=>`
+      <tr>
+        <td><input type="checkbox" data-ofx-check="${i}" ${p.selecionado?'checked':''}></td>
+        <td class="muted">${fmtDate(p.data)}</td>
+        <td>${escHtml(p.descricao)}</td>
+        <td class="num ${p.tipo==='credito'?'pos':'neg'}">${p.tipo==='credito'?'+':'-'} ${fmtMoney(p.valor)}</td>
+        <td><select data-ofx-cat="${i}">${CATEGORIAS.map(c=>`<option value="${c.id}" ${p.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></td>
+      </tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:10px; display:flex; gap:8px;">
+      <button class="btn btn-primary" id="confirmarImportOfx">Importar ${selecionados} lançamentos</button>
+      <button class="btn" id="cancelarImportOfx">Cancelar</button>
+    </div>
+  </div>`;
+}
+function parseOFX(texto){
+  const blocos = texto.match(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi) || texto.split(/<STMTTRN>/i).slice(1).map(b=>b.split(/<\/STMTTRN>/i)[0]);
+  const pegar = (bloco, tag) => {
+    const m = bloco.match(new RegExp('<'+tag+'>\\s*([^<\\r\\n]*)', 'i'));
+    return m ? m[1].trim() : '';
+  };
+  const resultado = [];
+  blocos.forEach(blocoBruto=>{
+    const bloco = blocoBruto.replace(/<STMTTRN>/i,'').replace(/<\/STMTTRN>/i,'');
+    const dtRaw = pegar(bloco, 'DTPOSTED');
+    const valorRaw = pegar(bloco, 'TRNAMT');
+    const memo = pegar(bloco, 'MEMO') || pegar(bloco, 'NAME') || 'Lançamento importado';
+    if(!dtRaw || !valorRaw) return;
+    const ano = dtRaw.slice(0,4), mes = dtRaw.slice(4,6), dia = dtRaw.slice(6,8);
+    const data = `${ano}-${mes}-${dia}`;
+    const valorNum = parseFloat(valorRaw.replace(',','.'));
+    if(isNaN(valorNum) || !ano || !mes || !dia) return;
+    const tipo = valorNum >= 0 ? 'credito' : 'debito';
+    resultado.push({
+      selecionado:true, data, descricao: memo,
+      valor: Math.abs(valorNum), tipo,
+      categoria: tipo==='credito' ? 'receita_servicos' : 'desp_admin'
+    });
+  });
+  return resultado;
 }
 
 /* ---------------- CONTAS A PAGAR / A RECEBER ---------------- */
@@ -506,21 +592,24 @@ function renderBlocoContas(tipo){
   const idPrefix = tipo==='pagar'? 'pg' : 'rc';
   const label = tipo==='pagar'? 'pagar' : 'receber';
   const pessoaLabel = tipo==='pagar'? 'Fornecedor' : 'Cliente';
+  const edId = tipo==='pagar' ? estadoEdicao.pagar : estadoEdicao.receber;
+  const edit = edId ? lista.find(i=>i.id===edId) : null;
   return `
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Total a ${label}</div><div class="value">${fmtMoney(totalPendente)}</div></div>
     <div class="kpi"><div class="label">Em atraso</div><div class="value ${totalAtrasado>0?'neg':''}">${fmtMoney(totalAtrasado)}</div></div>
   </div>
   <div class="card">
-    <div class="card-head"><h2>Nova conta a ${label}</h2></div>
+    <div class="card-head"><h2>${edit? `Editar conta a ${label}` : `Nova conta a ${label}`}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.4fr 1.1fr 0.9fr 1fr 1.3fr auto;">
-      <div class="field"><label>Descrição</label><input id="${idPrefix}Desc" placeholder="Ex: ${tipo==='pagar'?'Aluguel do escritório':'Serviço prestado ao cliente X'}"></div>
-      <div class="field"><label>${pessoaLabel}</label><input id="${idPrefix}Parte" placeholder="Nome"></div>
-      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="${idPrefix}Valor" placeholder="0,00"></div>
-      <div class="field"><label>Vencimento</label><input type="date" id="${idPrefix}Venc" value="${todayISO()}"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${CATEGORIAS.map(c=>`<option value="${c.id}" ${c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':''}>${c.label}</option>`).join('')}</select></div>
-      <button class="btn btn-primary" data-add-conta="${tipo}">Adicionar</button>
+      <div class="field"><label>Descrição</label><input id="${idPrefix}Desc" placeholder="Ex: ${tipo==='pagar'?'Aluguel do escritório':'Serviço prestado ao cliente X'}" value="${edit? escAttr(edit.descricao):''}"></div>
+      <div class="field"><label>${pessoaLabel}</label><input id="${idPrefix}Parte" placeholder="Nome" value="${edit? escAttr(edit.parte||''):''}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="${idPrefix}Valor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+      <div class="field"><label>Vencimento</label><input type="date" id="${idPrefix}Venc" value="${edit? edit.vencimento : todayISO()}"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" data-add-conta="${tipo}">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${edit? `<button class="btn-ghost" data-cancelar-edicao-conta="${tipo}" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>${tipo==='pagar'?'Contas a pagar':'Contas a receber'}</h2><span class="badge-count">${lista.length}</span></div>
@@ -540,7 +629,9 @@ function renderBlocoContas(tipo){
           <select data-conta-select="${tipo}:${i.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
             ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
           </select>
-          <button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>`:''}
+          <button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>`:
+          `<button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">Marcar como pendente</button>`}
+          <button class="btn-ghost" data-editar-conta-mov="${tipo}:${i.id}">Editar</button>
           <button class="btn-danger-ghost" data-del-conta-mov="${tipo}:${i.id}">Excluir</button>
         </td>
       </tr>`;
@@ -560,35 +651,37 @@ function renderContasPagarReceber(){
   `;
 }
 
-/* ---------------- FORNECEDORES ---------------- */
+/* ---------------- FORNECEDORES (exibido como "Clientes") ---------------- */
 let fornecedorBusca = '';
 function renderFornecedores(){
   const busca = fornecedorBusca.toLowerCase();
   const lista = state.fornecedores
     .filter(f=> !busca || f.nome.toLowerCase().includes(busca) || (f.categoria||'').toLowerCase().includes(busca))
     .slice().sort((a,b)=> a.nome.localeCompare(b.nome));
+  const edit = estadoEdicao.fornecedor ? state.fornecedores.find(f=>f.id===estadoEdicao.fornecedor) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>Novo fornecedor</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar cliente' : 'Novo cliente'}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr auto;">
-      <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do fornecedor"></div>
-      <div class="field"><label>CNPJ / CPF</label><input id="fnDoc" placeholder="00.000.000/0000-00"></div>
-      <div class="field"><label>Telefone</label><input id="fnTelefone" placeholder="(00) 00000-0000"></div>
-      <div class="field"><label>E-mail</label><input type="email" id="fnEmail" placeholder="contato@fornecedor.com"></div>
-      <button class="btn btn-primary" id="addFornecedor">Adicionar</button>
+      <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do cliente" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>CNPJ / CPF</label><input id="fnDoc" placeholder="00.000.000/0000-00" value="${edit? escAttr(edit.doc||''):''}"></div>
+      <div class="field"><label>Telefone</label><input id="fnTelefone" placeholder="(00) 00000-0000" value="${edit? escAttr(edit.telefone||''):''}"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="fnEmail" placeholder="contato@cliente.com" value="${edit? escAttr(edit.email||''):''}"></div>
+      <button class="btn btn-primary" id="addFornecedor">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 2fr; margin-top:2px;">
-      <div class="field"><label>Categoria / o que fornece</label><input id="fnCategoria" placeholder="Ex: Contabilidade, Material de escritório..."></div>
-      <div class="field"><label>Cidade / UF</label><input id="fnEndereco" placeholder="Ex: São Paulo/SP"></div>
-      <div class="field"><label>Observações</label><input id="fnObs" placeholder="Condições de pagamento, contato responsável..."></div>
+      <div class="field"><label>Categoria / serviço contratado</label><input id="fnCategoria" placeholder="Ex: Consultoria, Manutenção..." value="${edit? escAttr(edit.categoria||''):''}"></div>
+      <div class="field"><label>Cidade / UF</label><input id="fnEndereco" placeholder="Ex: São Paulo/SP" value="${edit? escAttr(edit.endereco||''):''}"></div>
+      <div class="field"><label>Observações</label><input id="fnObs" placeholder="Condições, contato responsável..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoFornecedor" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Fornecedores cadastrados</h2>
+      <h2>Clientes cadastrados</h2>
       <input id="fornecedorBusca" placeholder="Buscar por nome ou categoria..." style="width:240px;" value="${escAttr(fornecedorBusca)}">
     </div>
-    ${lista.length===0? '<div class="empty">Nenhum fornecedor cadastrado ainda.</div>' : `
+    ${lista.length===0? '<div class="empty">Nenhum cliente cadastrado ainda.</div>' : `
     <div style="display:flex; flex-direction:column; gap:10px;">
     ${lista.map(f=>`
       <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
@@ -597,7 +690,10 @@ function renderFornecedores(){
             <span style="font-weight:500; font-size:14.5px;">${escHtml(f.nome)}</span>
             ${f.categoria? `<span class="pill gray">${escHtml(f.categoria)}</span>` : ''}
           </div>
-          <button class="btn-danger-ghost" data-del-fornecedor="${f.id}">Excluir</button>
+          <div>
+            <button class="btn-ghost" data-editar-fornecedor="${f.id}">Editar</button>
+            <button class="btn-danger-ghost" data-del-fornecedor="${f.id}">Excluir</button>
+          </div>
         </div>
         <table style="font-size:12.5px;"><tbody>
           <tr>
@@ -622,31 +718,40 @@ function renderFornecedores(){
 const NOTA_TIPOS = {
   emitida: {label:'Emitida (venda)', pill:'green'},
   recebida: {label:'Recebida (compra)', pill:'gray'},
-  comissao: {label:'Comissão', pill:'amber'},
   nota_comissao: {label:'Nota de comissão', pill:'amber'}
 };
+function statusNotaInfo(status){
+  if(status==='paga') return {label:'Paga', pill:'green'};
+  if(status==='cancelada') return {label:'Cancelada', pill:'red'};
+  return {label:'Pendente', pill:'amber'};
+}
 function renderNotas(){
   const notas = [...state.notas].sort((a,b)=> b.data.localeCompare(a.data));
+  const edit = estadoEdicao.nota ? state.notas.find(n=>n.id===estadoEdicao.nota) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>Nova nota fiscal</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar nota fiscal' : 'Nova nota fiscal'}</h2></div>
     <div class="form-grid" style="grid-template-columns:0.8fr 1.1fr 1.4fr 0.9fr 1fr 1fr auto;">
-      <div class="field"><label>Número</label><input id="nfNumero" placeholder="0001"></div>
+      <div class="field"><label>Número</label><input id="nfNumero" placeholder="0001" value="${edit? escAttr(edit.numero):''}"></div>
       <div class="field"><label>Tipo</label><select id="nfTipo">
-        <option value="emitida">Emitida (venda)</option>
-        <option value="recebida">Recebida (compra)</option>
-        <option value="comissao">Comissão</option>
-        <option value="nota_comissao">Nota de comissão</option>
+        <option value="emitida" ${edit&&edit.tipo==='emitida'?'selected':''}>Emitida (venda)</option>
+        <option value="recebida" ${edit&&edit.tipo==='recebida'?'selected':''}>Recebida (compra)</option>
+        <option value="nota_comissao" ${edit&&edit.tipo==='nota_comissao'?'selected':''}>Nota de comissão</option>
       </select></div>
-      <div class="field"><label>Cliente / Fornecedor</label><input id="nfParte" placeholder="Nome"></div>
-      <div class="field"><label>Data</label><input type="date" id="nfData" value="${todayISO()}"></div>
-      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="nfValor" placeholder="0,00"></div>
-      <div class="field"><label>Status</label><select id="nfStatus"><option value="emitida">Em aberto</option><option value="paga">Paga</option><option value="cancelada">Cancelada</option></select></div>
-      <button class="btn btn-primary" id="addNota">Adicionar</button>
+      <div class="field"><label>Cliente / Fornecedor</label><input id="nfParte" placeholder="Nome" value="${edit? escAttr(edit.parte):''}"></div>
+      <div class="field"><label>Data</label><input type="date" id="nfData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="nfValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+      <div class="field"><label>Status</label><select id="nfStatus">
+        <option value="pendente" ${edit&&edit.status!=='paga'&&edit.status!=='cancelada'?'selected':''}>Pendente</option>
+        <option value="paga" ${edit&&edit.status==='paga'?'selected':''}>Paga</option>
+        <option value="cancelada" ${edit&&edit.status==='cancelada'?'selected':''}>Cancelada</option>
+      </select></div>
+      <button class="btn btn-primary" id="addNota">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
-      <div class="field"><label>Observações</label><input id="nfObs" placeholder="Detalhes sobre esta nota..."></div>
+      <div class="field"><label>Observações</label><input id="nfObs" placeholder="Detalhes sobre esta nota..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
@@ -654,15 +759,20 @@ function renderNotas(){
     <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Observações</th><th></th></tr></thead>
     <tbody>${notas.map(n=>{
       const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
+      const st = statusNotaInfo(n.status);
       return `<tr>
         <td>${escHtml(n.numero)}</td>
         <td><span class="pill ${t.pill}">${t.label}</span></td>
         <td>${escHtml(n.parte)}</td>
         <td class="muted">${fmtDate(n.data)}</td>
         <td class="num">${fmtMoney(n.valor)}</td>
-        <td><span class="pill ${n.status==='paga'?'green':n.status==='cancelada'?'red':'amber'}">${n.status==='paga'?'Paga':n.status==='cancelada'?'Cancelada':'Em aberto'}</span></td>
+        <td><span class="pill ${st.pill}">${st.label}</span></td>
         <td class="muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
-        <td><button class="btn-danger-ghost" data-del-nota="${n.id}">Excluir</button></td>
+        <td style="white-space:nowrap;">
+          ${n.status!=='cancelada'? `<button class="btn-ghost" data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
+          <button class="btn-ghost" data-editar-nota="${n.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-nota="${n.id}">Excluir</button>
+        </td>
       </tr>`;
     }).join('')}
     </tbody></table>`}
@@ -686,6 +796,7 @@ function renderClientes(){
   const valorNegociacao = negociacao.reduce((s,c)=> s+(c.valor||0), 0);
   const lista = (clienteFiltro==='todos'? todos : todos.filter(c=>c.status===clienteFiltro))
     .slice().sort((a,b)=> (b.data||'').localeCompare(a.data||''));
+  const edit = estadoEdicao.cliente ? state.clientes.find(c=>c.id===estadoEdicao.cliente) : null;
   return `
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Consórcios fechados</div><div class="value pos">${fechados.length} <span style="font-size:13px; color:var(--ink-faint); font-weight:400;">· ${fmtMoney(valorFechado)}</span></div></div>
@@ -693,33 +804,34 @@ function renderClientes(){
     <div class="kpi"><div class="label">Perdidos</div><div class="value neg">${perdidos.length}</div></div>
   </div>
   <div class="card">
-    <div class="card-head"><h2>Novo cliente</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar consorciado' : 'Novo consorciado'}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr auto;">
-      <div class="field"><label>Nome do cliente</label><input id="clNome" placeholder="Nome completo"></div>
-      <div class="field"><label>Telefone</label><input id="clContato" placeholder="(00) 00000-0000"></div>
-      <div class="field"><label>E-mail</label><input type="email" id="clEmail" placeholder="cliente@email.com"></div>
-      <div class="field"><label>Tipo de consórcio</label><input id="clTipo" placeholder="Ex: Imóvel, Veículo..."></div>
-      <button class="btn btn-primary" id="addCliente">Adicionar</button>
+      <div class="field"><label>Nome do cliente</label><input id="clNome" placeholder="Nome completo" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>Telefone</label><input id="clContato" placeholder="(00) 00000-0000" value="${edit? escAttr(edit.contato||''):''}"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="clEmail" placeholder="cliente@email.com" value="${edit? escAttr(edit.email||''):''}"></div>
+      <div class="field"><label>Tipo de consórcio</label><input id="clTipo" placeholder="Ex: Imóvel, Veículo..." value="${edit? escAttr(edit.tipo||''):''}"></div>
+      <button class="btn btn-primary" id="addCliente">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr; margin-top:2px;">
-      <div class="field"><label>Nº do contrato</label><input id="clContrato" placeholder="Ex: 000123"></div>
-      <div class="field"><label>Cota</label><input id="clCota" placeholder="Ex: 0456"></div>
-      <div class="field"><label>Administradora</label><input id="clAdmin" placeholder="Ex: Porto, Embracon..."></div>
-      <div class="field"><label>Valor da carta</label><input class="num" type="number" step="0.01" id="clValor" placeholder="0,00"></div>
+      <div class="field"><label>Nº do contrato</label><input id="clContrato" placeholder="Ex: 000123" value="${edit? escAttr(edit.contrato||''):''}"></div>
+      <div class="field"><label>Cota</label><input id="clCota" placeholder="Ex: 0456" value="${edit? escAttr(edit.cota||''):''}"></div>
+      <div class="field"><label>Administradora</label><input id="clAdmin" placeholder="Ex: Porto, Embracon..." value="${edit? escAttr(edit.admin||''):''}"></div>
+      <div class="field"><label>Valor da carta</label><input class="num" type="number" step="0.01" id="clValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <div class="field"><label>Situação</label><select id="clStatus">
-        <option value="negociacao">Em negociação</option>
-        <option value="fechado">Fechado</option>
-        <option value="perdido">Perdido</option>
+        <option value="negociacao" ${edit&&edit.status==='negociacao'?'selected':''}>Em negociação</option>
+        <option value="fechado" ${edit&&edit.status==='fechado'?'selected':''}>Fechado</option>
+        <option value="perdido" ${edit&&edit.status==='perdido'?'selected':''}>Perdido</option>
       </select></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 3fr; margin-top:2px;">
-      <div class="field"><label>Data do contato</label><input type="date" id="clData" value="${todayISO()}"></div>
-      <div class="field"><label>Observações</label><input id="clObs" placeholder="Detalhes, motivo da perda, próximos passos..."></div>
+      <div class="field"><label>Data do contato</label><input type="date" id="clData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Observações</label><input id="clObs" placeholder="Detalhes, motivo da perda, próximos passos..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoCliente" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Clientes</h2>
+      <h2>Consorciados</h2>
       <select id="clienteFiltro" style="width:180px;">
         <option value="todos" ${clienteFiltro==='todos'?'selected':''}>Todos</option>
         <option value="fechado" ${clienteFiltro==='fechado'?'selected':''}>Fechados</option>
@@ -727,7 +839,7 @@ function renderClientes(){
         <option value="perdido" ${clienteFiltro==='perdido'?'selected':''}>Perdidos</option>
       </select>
     </div>
-    ${lista.length===0? '<div class="empty">Nenhum cliente nesta situação ainda.</div>' : `
+    ${lista.length===0? '<div class="empty">Nenhum consorciado nesta situação ainda.</div>' : `
     <div style="display:flex; flex-direction:column; gap:10px;">
     ${lista.map(c=>`
       <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
@@ -740,7 +852,10 @@ function renderClientes(){
               <option value="perdido" ${c.status==='perdido'?'selected':''}>Perdido</option>
             </select>
           </div>
-          <button class="btn-danger-ghost" data-del-cliente="${c.id}">Excluir</button>
+          <div>
+            <button class="btn-ghost" data-editar-cliente="${c.id}">Editar</button>
+            <button class="btn-danger-ghost" data-del-cliente="${c.id}">Excluir</button>
+          </div>
         </div>
         <table style="font-size:12.5px;"><tbody>
           <tr>
@@ -837,16 +952,18 @@ function renderBalancete(){
     return {...p, devedor, credor};
   });
   const diff = totalD - totalC;
+  const edit = estadoEdicao.plano ? state.plano.find(p=>p.id===estadoEdicao.plano) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>Adicionar conta contábil</h2></div>
+    <div class="card-head"><h2>${edit? 'Editar conta contábil' : 'Adicionar conta contábil'}</h2></div>
     <div class="form-grid" style="grid-template-columns:1fr 1.6fr 0.8fr 1fr auto;">
-      <div class="field"><label>Grupo</label><select id="bcGrupo">${grupos.map(g=>`<option value="${g}">${g}</option>`).join('')}</select></div>
-      <div class="field"><label>Nome da conta</label><input id="bcConta" placeholder="Ex: Adiantamento a fornecedores"></div>
-      <div class="field"><label>Natureza</label><select id="bcNatureza"><option value="D">Devedora</option><option value="C">Credora</option></select></div>
-      <div class="field"><label>Saldo</label><input class="num" type="number" step="0.01" id="bcSaldo" placeholder="0,00"></div>
-      <button class="btn btn-primary" id="addPlano">Adicionar</button>
+      <div class="field"><label>Grupo</label><select id="bcGrupo">${grupos.map(g=>`<option value="${g}" ${edit&&edit.grupo===g?'selected':''}>${g}</option>`).join('')}</select></div>
+      <div class="field"><label>Nome da conta</label><input id="bcConta" placeholder="Ex: Adiantamento a fornecedores" value="${edit? escAttr(edit.conta):''}"></div>
+      <div class="field"><label>Natureza</label><select id="bcNatureza"><option value="D" ${edit&&edit.natureza==='D'?'selected':''}>Devedora</option><option value="C" ${edit&&edit.natureza==='C'?'selected':''}>Credora</option></select></div>
+      <div class="field"><label>Saldo</label><input class="num" type="number" step="0.01" id="bcSaldo" placeholder="0,00" value="${edit? edit.saldoManual:''}"></div>
+      <button class="btn btn-primary" id="addPlano">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoPlano" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   ${grupos.map(g=>{
     const rows = linhasCalc.filter(l=>l.grupo===g);
@@ -859,7 +976,7 @@ function renderBalancete(){
           <td>${escHtml(r.conta)}${r.auto?` <span class="muted" style="font-size:11px;">(automático)</span>`:''}</td>
           <td class="num">${r.devedor? fmtMoney(r.devedor) : '—'}</td>
           <td class="num">${r.credor? fmtMoney(r.credor) : '—'}</td>
-          <td>${r.auto? '' : `<button class="btn-danger-ghost" data-del-plano="${r.id}">Excluir</button>`}</td>
+          <td>${r.auto? '' : `<button class="btn-ghost" data-editar-plano="${r.id}">Editar</button> <button class="btn-danger-ghost" data-del-plano="${r.id}">Excluir</button>`}</td>
         </tr>`).join('')}
       </tbody></table>
     </div>`;
@@ -873,8 +990,116 @@ function renderBalancete(){
   </div>`;
 }
 
+/* ---------------- AGENDA ---------------- */
+function eventosAgendaTodos(){
+  const eventos = [];
+  state.agenda.forEach(a=> eventos.push({
+    id:a.id, data:a.data, tipoLabel:'Compromisso', cor:'gray', titulo:a.titulo, detalhe:a.descricao,
+    origem:'agenda', concluido:!!a.concluido
+  }));
+  state.contasPagar.filter(i=>statusConta(i)!=='pago').forEach(i=> eventos.push({
+    id:i.id, data:i.vencimento, tipoLabel: statusConta(i)==='atrasado' ? 'Pagar (atrasado)' : 'A pagar', cor:'red',
+    titulo:i.descricao + (i.parte? ' — '+i.parte:''), valor:i.valor, origem:'pagar'
+  }));
+  state.contasReceber.filter(i=>statusConta(i)!=='pago').forEach(i=> eventos.push({
+    id:i.id, data:i.vencimento, tipoLabel: statusConta(i)==='atrasado' ? 'Receber (atrasado)' : 'A receber', cor:'green',
+    titulo:i.descricao + (i.parte? ' — '+i.parte:''), valor:i.valor, origem:'receber'
+  }));
+  state.notas.filter(n=> n.status!=='paga' && n.status!=='cancelada').forEach(n=> eventos.push({
+    id:n.id, data:n.data, tipoLabel:'Nota fiscal', cor:'amber',
+    titulo:`Nº ${n.numero} — ${n.parte}`, valor:n.valor, origem:'nota'
+  }));
+  return eventos.filter(e=>e.data).sort((a,b)=> a.data.localeCompare(b.data));
+}
+function eventosDoDia(dataISO){
+  return eventosAgendaTodos().filter(e=> e.data===dataISO && !e.concluido);
+}
+function renderAgenda(){
+  const todos = eventosAgendaTodos();
+  const hoje = todayISO();
+  const atrasados = todos.filter(e=> e.data < hoje && !e.concluido);
+  const futuros = todos.filter(e=> e.data >= hoje);
+  const porDia = {};
+  futuros.forEach(e=>{ (porDia[e.data] = porDia[e.data]||[]).push(e); });
+  const dias = Object.keys(porDia).sort();
+  const edit = estadoEdicao.agenda ? state.agenda.find(a=>a.id===estadoEdicao.agenda) : null;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar compromisso' : 'Novo compromisso'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1.6fr 1fr auto;">
+      <div class="field"><label>Data</label><input type="date" id="agData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Título</label><input id="agTitulo" placeholder="Ex: Ligar para cliente X" value="${edit? escAttr(edit.titulo):''}"></div>
+      <div class="field"><label>Detalhes (opcional)</label><input id="agDescricao" placeholder="Observações" value="${edit? escAttr(edit.descricao||''):''}"></div>
+      <button class="btn btn-primary" id="addAgenda">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoAgenda" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  ${atrasados.length>0? `
+  <div class="card" style="border-color:var(--danger);">
+    <div class="card-head"><h2>Atrasados</h2><span class="badge-count">${atrasados.length}</span></div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${atrasados.map(ev=>linhaEventoAgenda(ev)).join('')}
+    </div>
+  </div>` : ''}
+  ${dias.length===0 && atrasados.length===0? '<div class="card"><div class="empty">Nada agendado. Cadastre um compromisso acima, ou lançamentos em "Contas a pagar/receber" e "Notas fiscais" aparecem aqui automaticamente.</div></div>' : ''}
+  ${dias.map(d=>`
+    <div class="card">
+      <div class="card-head"><h2>${d===hoje? 'Hoje · ':''}${fmtDate(d)}</h2></div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${porDia[d].map(ev=>linhaEventoAgenda(ev)).join('')}
+      </div>
+    </div>`).join('')}
+  `;
+}
+function linhaEventoAgenda(ev){
+  const podeEditar = ev.origem==='agenda';
+  return `
+  <div style="display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:9px 12px;">
+    <span class="pill ${ev.cor}">${ev.tipoLabel}</span>
+    <span style="flex:1; font-size:13.5px;">${escHtml(ev.titulo)}${ev.detalhe? ` <span class="muted">— ${escHtml(ev.detalhe)}</span>` : ''}</span>
+    ${ev.valor? `<span class="num" style="font-size:13px;">${fmtMoney(ev.valor)}</span>` : ''}
+    ${podeEditar? `
+      <button class="btn-ghost" data-concluir-agenda="${ev.id}">${ev.concluido? 'Reabrir' : 'Concluir'}</button>
+      <button class="btn-ghost" data-editar-agenda="${ev.id}">Editar</button>
+      <button class="btn-danger-ghost" data-del-agenda="${ev.id}">Excluir</button>
+    ` : `<span class="muted" style="font-size:11px;">via ${ev.origem==='pagar'?'Contas a pagar':ev.origem==='receber'?'Contas a receber':'Notas fiscais'}</span>`}
+  </div>`;
+}
+
 /* ---------------- Handlers ---------------- */
 function attachHandlers(){
+  const addAgenda = document.getElementById('addAgenda');
+  if(addAgenda){
+    addAgenda.onclick = async ()=>{
+      const data = document.getElementById('agData').value || todayISO();
+      const titulo = document.getElementById('agTitulo').value.trim();
+      const descricao = document.getElementById('agDescricao').value.trim();
+      if(!titulo){ document.getElementById('agTitulo').focus(); return; }
+      if(estadoEdicao.agenda){
+        const item = state.agenda.find(a=>a.id===estadoEdicao.agenda);
+        if(item){ item.data=data; item.titulo=titulo; item.descricao=descricao; }
+        estadoEdicao.agenda = null;
+      } else {
+        state.agenda.push({ id: uid(), data, titulo, descricao, concluido:false });
+      }
+      await saveState(); render();
+    };
+  }
+  document.querySelectorAll('[data-editar-agenda]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.agenda = b.dataset.editarAgenda; render();
+  });
+  const cancelarEdicaoAgenda = document.getElementById('cancelarEdicaoAgenda');
+  if(cancelarEdicaoAgenda) cancelarEdicaoAgenda.onclick = ()=>{ estadoEdicao.agenda=null; render(); };
+  document.querySelectorAll('[data-del-agenda]').forEach(b=> b.onclick = async ()=>{
+    state.agenda = state.agenda.filter(a=>a.id!==b.dataset.delAgenda);
+    if(estadoEdicao.agenda===b.dataset.delAgenda) estadoEdicao.agenda=null;
+    await saveState(); render();
+  });
+  document.querySelectorAll('[data-concluir-agenda]').forEach(b=> b.onclick = async ()=>{
+    const item = state.agenda.find(a=>a.id===b.dataset.concluirAgenda);
+    if(item){ item.concluido = !item.concluido; await saveState(); render(); }
+  });
+
   const empresaNomeInput = document.getElementById('empresaNomeInput');
   if(empresaNomeInput){
     document.getElementById('salvarEmpresa').onclick = async ()=>{
@@ -964,22 +1189,34 @@ function attachHandlers(){
     addFornecedor.onclick = async ()=>{
       const nome = document.getElementById('fnNome').value.trim();
       if(!nome){ document.getElementById('fnNome').focus(); return; }
-      state.fornecedores.push({
-        id: uid(), nome,
+      const dados = {
+        nome,
         doc: document.getElementById('fnDoc').value.trim(),
         telefone: document.getElementById('fnTelefone').value.trim(),
         email: document.getElementById('fnEmail').value.trim(),
         categoria: document.getElementById('fnCategoria').value.trim(),
         endereco: document.getElementById('fnEndereco').value.trim(),
         obs: document.getElementById('fnObs').value.trim()
-      });
+      };
+      if(estadoEdicao.fornecedor){
+        const item = state.fornecedores.find(f=>f.id===estadoEdicao.fornecedor);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.fornecedor = null;
+      } else {
+        state.fornecedores.push({ id: uid(), ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-fornecedor]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.fornecedor = b.dataset.editarFornecedor; render();
+  });
+  const cancelarEdicaoFornecedor = document.getElementById('cancelarEdicaoFornecedor');
+  if(cancelarEdicaoFornecedor) cancelarEdicaoFornecedor.onclick = ()=>{ estadoEdicao.fornecedor=null; render(); };
   const fornecedorBuscaInput = document.getElementById('fornecedorBusca');
   if(fornecedorBuscaInput) fornecedorBuscaInput.onchange = ()=>{ fornecedorBusca = fornecedorBuscaInput.value; render(); };
   document.querySelectorAll('[data-del-fornecedor]').forEach(b=> b.onclick = async ()=>{
-    if(!confirm('Excluir este fornecedor?')) return;
+    if(!confirm('Excluir este cliente?')) return;
     state.fornecedores = state.fornecedores.filter(f=>f.id!==b.dataset.delFornecedor);
     await saveState(); render();
   });
@@ -989,16 +1226,28 @@ function attachHandlers(){
     addConta.onclick = async ()=>{
       const nome = document.getElementById('ctNome').value.trim();
       if(!nome){ document.getElementById('ctNome').focus(); return; }
-      state.contas.push({
-        id: uid(), nome,
+      const dados = {
+        nome,
         banco: document.getElementById('ctBanco').value.trim(),
         agencia: document.getElementById('ctAgencia').value.trim(),
         numero: document.getElementById('ctNumero').value.trim(),
         saldoInicial: parseFloat(document.getElementById('ctSaldo').value)||0
-      });
+      };
+      if(estadoEdicao.conta){
+        const item = state.contas.find(c=>c.id===estadoEdicao.conta);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.conta = null;
+      } else {
+        state.contas.push({ id: uid(), ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-conta]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.conta = b.dataset.editarConta; render();
+  });
+  const cancelarEdicaoConta = document.getElementById('cancelarEdicaoConta');
+  if(cancelarEdicaoConta) cancelarEdicaoConta.onclick = ()=>{ estadoEdicao.conta=null; render(); };
   document.querySelectorAll('[data-del-conta]').forEach(b=> b.onclick = async ()=>{
     if(!confirm('Excluir esta conta e todos os lançamentos vinculados a ela?')) return;
     const id = b.dataset.delConta;
@@ -1008,7 +1257,7 @@ function attachHandlers(){
   });
 
   const extratoConta = document.getElementById('extratoConta');
-  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; render(); };
+  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; render(); };
 
   const addTx = document.getElementById('addTx');
   if(addTx){
@@ -1016,21 +1265,68 @@ function attachHandlers(){
       const desc = document.getElementById('txDesc').value.trim();
       const valor = parseFloat(document.getElementById('txValor').value);
       if(!desc || !valor){ return; }
-      state.transacoes.push({
-        id: uid(), contaId: extratoContaSel,
+      const dados = {
         data: document.getElementById('txData').value || todayISO(),
         descricao: desc,
         tipo: document.getElementById('txTipo').value,
         valor: Math.abs(valor),
         categoria: document.getElementById('txCategoria').value
-      });
+      };
+      if(estadoEdicao.tx){
+        const item = state.transacoes.find(t=>t.id===estadoEdicao.tx);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.tx = null;
+      } else {
+        state.transacoes.push({ id: uid(), contaId: extratoContaSel, ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-tx]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.tx = b.dataset.editarTx; render();
+  });
+  const cancelarEdicaoTx = document.getElementById('cancelarEdicaoTx');
+  if(cancelarEdicaoTx) cancelarEdicaoTx.onclick = ()=>{ estadoEdicao.tx=null; render(); };
   document.querySelectorAll('[data-del-tx]').forEach(b=> b.onclick = async ()=>{
     state.transacoes = state.transacoes.filter(t=>t.id!==b.dataset.delTx);
     await saveState(); render();
   });
+
+  const ofxInput = document.getElementById('ofxInput');
+  if(ofxInput){
+    ofxInput.onchange = ()=>{
+      const file = ofxInput.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (e)=>{
+        ofxPreview = parseOFX(e.target.result);
+        render();
+      };
+      reader.readAsText(file);
+    };
+  }
+  document.querySelectorAll('[data-ofx-check]').forEach(chk=> chk.onchange = ()=>{
+    ofxPreview[parseInt(chk.dataset.ofxCheck)].selecionado = chk.checked;
+  });
+  document.querySelectorAll('[data-ofx-cat]').forEach(sel=> sel.onchange = ()=>{
+    ofxPreview[parseInt(sel.dataset.ofxCat)].categoria = sel.value;
+  });
+  const confirmarImportOfx = document.getElementById('confirmarImportOfx');
+  if(confirmarImportOfx){
+    confirmarImportOfx.onclick = async ()=>{
+      const selecionados = ofxPreview.filter(p=>p.selecionado);
+      selecionados.forEach(p=>{
+        state.transacoes.push({
+          id: uid(), contaId: extratoContaSel,
+          data: p.data, descricao: p.descricao, tipo: p.tipo, valor: p.valor, categoria: p.categoria
+        });
+      });
+      ofxPreview = null;
+      await saveState(); render();
+    };
+  }
+  const cancelarImportOfx = document.getElementById('cancelarImportOfx');
+  if(cancelarImportOfx) cancelarImportOfx.onclick = ()=>{ ofxPreview = null; render(); };
 
   const addNota = document.getElementById('addNota');
   if(addNota){
@@ -1039,17 +1335,33 @@ function attachHandlers(){
       const parte = document.getElementById('nfParte').value.trim();
       const valor = parseFloat(document.getElementById('nfValor').value);
       if(!numero || !parte || !valor){ return; }
-      state.notas.push({
-        id: uid(), numero, parte,
+      const dados = {
+        numero, parte,
         tipo: document.getElementById('nfTipo').value,
         data: document.getElementById('nfData').value || todayISO(),
         valor: Math.abs(valor),
         status: document.getElementById('nfStatus').value,
         obs: document.getElementById('nfObs').value.trim()
-      });
+      };
+      if(estadoEdicao.nota){
+        const item = state.notas.find(n=>n.id===estadoEdicao.nota);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.nota = null;
+      } else {
+        state.notas.push({ id: uid(), ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-nota]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.nota = b.dataset.editarNota; render();
+  });
+  const cancelarEdicaoNota = document.getElementById('cancelarEdicaoNota');
+  if(cancelarEdicaoNota) cancelarEdicaoNota.onclick = ()=>{ estadoEdicao.nota=null; render(); };
+  document.querySelectorAll('[data-toggle-pago-nota]').forEach(b=> b.onclick = async ()=>{
+    const n = state.notas.find(n=>n.id===b.dataset.togglePagoNota);
+    if(n){ n.status = n.status==='paga' ? 'pendente' : 'paga'; await saveState(); render(); }
+  });
   document.querySelectorAll('[data-del-nota]').forEach(b=> b.onclick = async ()=>{
     state.notas = state.notas.filter(n=>n.id!==b.dataset.delNota);
     await saveState(); render();
@@ -1061,17 +1373,34 @@ function attachHandlers(){
     const desc = document.getElementById(p+'Desc').value.trim();
     const valor = parseFloat(document.getElementById(p+'Valor').value);
     if(!desc || !valor){ return; }
-    const item = {
-      id: uid(),
+    const dados = {
       descricao: desc,
       parte: document.getElementById(p+'Parte').value.trim(),
       valor: Math.abs(valor),
       vencimento: document.getElementById(p+'Venc').value || todayISO(),
-      categoria: document.getElementById(p+'Cat').value,
-      status: 'pendente'
+      categoria: document.getElementById(p+'Cat').value
     };
-    if(tipo==='pagar') state.contasPagar.push(item); else state.contasReceber.push(item);
+    const edId = tipo==='pagar' ? estadoEdicao.pagar : estadoEdicao.receber;
+    if(edId){
+      const lista = tipo==='pagar'? state.contasPagar : state.contasReceber;
+      const item = lista.find(i=>i.id===edId);
+      if(item) Object.assign(item, dados);
+      if(tipo==='pagar') estadoEdicao.pagar=null; else estadoEdicao.receber=null;
+    } else {
+      const item = { id: uid(), status:'pendente', ...dados };
+      if(tipo==='pagar') state.contasPagar.push(item); else state.contasReceber.push(item);
+    }
     await saveState(); render();
+  });
+  document.querySelectorAll('[data-editar-conta-mov]').forEach(btn=> btn.onclick = ()=>{
+    const [tipo, id] = btn.dataset.editarContaMov.split(':');
+    if(tipo==='pagar') estadoEdicao.pagar = id; else estadoEdicao.receber = id;
+    render();
+  });
+  document.querySelectorAll('[data-cancelar-edicao-conta]').forEach(btn=> btn.onclick = ()=>{
+    const tipo = btn.dataset.cancelarEdicaoConta;
+    if(tipo==='pagar') estadoEdicao.pagar=null; else estadoEdicao.receber=null;
+    render();
   });
 
   document.querySelectorAll('[data-pay-conta]').forEach(btn=> btn.onclick = async ()=>{
@@ -1079,6 +1408,11 @@ function attachHandlers(){
     const lista = tipo==='pagar'? state.contasPagar : state.contasReceber;
     const item = lista.find(i=>i.id===id);
     if(!item) return;
+    if(item.status==='pago'){
+      item.status = 'pendente';
+      await saveState(); render();
+      return;
+    }
     const sel = document.querySelector(`[data-conta-select="${tipo}:${id}"]`);
     const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
     if(!contaId) return;
@@ -1108,8 +1442,8 @@ function attachHandlers(){
     addCliente.onclick = async ()=>{
       const nome = document.getElementById('clNome').value.trim();
       if(!nome){ document.getElementById('clNome').focus(); return; }
-      state.clientes.push({
-        id: uid(), nome,
+      const dados = {
+        nome,
         contato: document.getElementById('clContato').value.trim(),
         email: document.getElementById('clEmail').value.trim(),
         tipo: document.getElementById('clTipo').value.trim(),
@@ -1120,10 +1454,22 @@ function attachHandlers(){
         status: document.getElementById('clStatus').value,
         data: document.getElementById('clData').value || todayISO(),
         obs: document.getElementById('clObs').value.trim()
-      });
+      };
+      if(estadoEdicao.cliente){
+        const item = state.clientes.find(c=>c.id===estadoEdicao.cliente);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.cliente = null;
+      } else {
+        state.clientes.push({ id: uid(), ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-cliente]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.cliente = b.dataset.editarCliente; render();
+  });
+  const cancelarEdicaoCliente = document.getElementById('cancelarEdicaoCliente');
+  if(cancelarEdicaoCliente) cancelarEdicaoCliente.onclick = ()=>{ estadoEdicao.cliente=null; render(); };
   const clienteFiltroSel = document.getElementById('clienteFiltro');
   if(clienteFiltroSel) clienteFiltroSel.onchange = ()=>{ clienteFiltro = clienteFiltroSel.value; render(); };
   document.querySelectorAll('[data-status-cliente]').forEach(sel=> sel.onchange = async ()=>{
@@ -1131,7 +1477,7 @@ function attachHandlers(){
     if(c){ c.status = sel.value; await saveState(); render(); }
   });
   document.querySelectorAll('[data-del-cliente]').forEach(b=> b.onclick = async ()=>{
-    if(!confirm('Excluir este cliente?')) return;
+    if(!confirm('Excluir este consorciado?')) return;
     state.clientes = state.clientes.filter(c=>c.id!==b.dataset.delCliente);
     await saveState(); render();
   });
@@ -1146,16 +1492,27 @@ function attachHandlers(){
     addPlano.onclick = async ()=>{
       const conta = document.getElementById('bcConta').value.trim();
       if(!conta){ return; }
-      state.plano.push({
-        id: uid(),
+      const dados = {
         grupo: document.getElementById('bcGrupo').value,
         conta,
         natureza: document.getElementById('bcNatureza').value,
         saldoManual: parseFloat(document.getElementById('bcSaldo').value)||0
-      });
+      };
+      if(estadoEdicao.plano){
+        const item = state.plano.find(p=>p.id===estadoEdicao.plano);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.plano = null;
+      } else {
+        state.plano.push({ id: uid(), ...dados });
+      }
       await saveState(); render();
     };
   }
+  document.querySelectorAll('[data-editar-plano]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.plano = b.dataset.editarPlano; render();
+  });
+  const cancelarEdicaoPlano = document.getElementById('cancelarEdicaoPlano');
+  if(cancelarEdicaoPlano) cancelarEdicaoPlano.onclick = ()=>{ estadoEdicao.plano=null; render(); };
   document.querySelectorAll('[data-del-plano]').forEach(b=> b.onclick = async ()=>{
     state.plano = state.plano.filter(p=>p.id!==b.dataset.delPlano);
     await saveState(); render();
@@ -1297,3 +1654,4 @@ document.getElementById('loginUsuario').addEventListener('keydown', e=>{ if(e.ke
 </script>
 </body>
 </html>
+
