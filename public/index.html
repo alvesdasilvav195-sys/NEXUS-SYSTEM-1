@@ -156,6 +156,7 @@
     </div>
     <button class="nav-item" data-tab="dashboard"><span class="nav-dot"></span>Dashboard</button>
     <button class="nav-item" data-tab="agenda"><span class="nav-dot"></span>Agenda</button>
+    <button class="nav-item" data-tab="crm"><span class="nav-dot"></span>CRM</button>
     <button class="nav-item" data-tab="contas"><span class="nav-dot"></span>Contas bancárias</button>
     <button class="nav-item" data-tab="extrato"><span class="nav-dot"></span>Extrato bancário</button>
     <button class="nav-item" data-tab="apagarreceber"><span class="nav-dot"></span>Contas a pagar/receber</button>
@@ -205,6 +206,7 @@ const CATEGORIAS = [
   {id:'outras_receitas', label:'Outras receitas', grupo:'outras_receitas'},
   {id:'outras_despesas', label:'Outras despesas', grupo:'outras_despesas'},
   {id:'transferencia', label:'Transferência entre contas (não entra na DRE)', grupo:'neutro'},
+  {id:'ajuste_saldo', label:'Correção de saldo (não entra na DRE)', grupo:'neutro'},
 ];
 const catLabel = id => (CATEGORIAS.find(c=>c.id===id)||{}).label || id;
 
@@ -219,7 +221,8 @@ let state = {
   contasPagar: [],
   contasReceber: [],
   fornecedores: [],
-  agenda: []
+  agenda: [],
+  crm: []
 };
 
 function planoPadrao(){
@@ -253,6 +256,7 @@ async function loadState(){
   if(!state.contasReceber) state.contasReceber = [];
   if(!state.fornecedores) state.fornecedores = [];
   if(!state.agenda) state.agenda = [];
+  if(!state.crm) state.crm = [];
 }
 
 let saveTimer=null;
@@ -345,10 +349,12 @@ const TITLES = {
   dre:['DRE','Demonstração do Resultado do Exercício, por regime de caixa'],
   balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
+  crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null };
+let crmSelecionado = null;
 function setTab(tab){
   activeTab = tab;
   document.querySelectorAll('.nav-item').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
@@ -364,6 +370,7 @@ function render(){
   document.getElementById('empresaNomeSidebar').textContent = state.empresa.nome || 'Minha Empresa';
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
+  if(activeTab==='crm') view.innerHTML = renderCRM();
   if(activeTab==='contas') view.innerHTML = renderContas();
   if(activeTab==='extrato') view.innerHTML = renderExtrato();
   if(activeTab==='apagarreceber') view.innerHTML = renderContasPagarReceber();
@@ -462,6 +469,7 @@ function renderContas(){
 /* ---------------- EXTRATO BANCÁRIO ---------------- */
 let extratoContaSel = null;
 let ofxPreview = null;
+let mostrarCorrecaoSaldo = false;
 function renderExtrato(){
   if(state.contas.length===0){
     return `<div class="card"><div class="empty">Cadastre uma conta bancária primeiro, na aba "Contas bancárias".</div></div>`;
@@ -483,6 +491,15 @@ function renderExtrato(){
       ${state.contas.map(c=>`<option value="${c.id}" ${c.id===extratoContaSel?'selected':''}>${escHtml(c.nome)}${c.banco? ' · '+escHtml(c.banco):''}</option>`).join('')}
     </select>
     <span class="pill ${saldoConta(extratoContaSel)>=0?'green':'red'}" style="margin-left:10px;">Saldo atual: ${fmtMoney(saldoConta(extratoContaSel))}</span>
+    <button class="btn-ghost" id="toggleCorrecaoSaldo" style="margin-left:8px;">${mostrarCorrecaoSaldo? 'Fechar correção de saldo' : 'Corrigir saldo desta conta'}</button>
+    ${mostrarCorrecaoSaldo? `
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">
+      <div class="hint" style="margin-bottom:8px;">Use isso quando o saldo aqui não bate com o saldo real do banco. Informe o saldo correto e o sistema lança a diferença automaticamente, sem contar como receita ou despesa na DRE.</div>
+      <div class="form-grid" style="grid-template-columns:1fr auto;">
+        <div class="field"><label>Saldo correto (conforme o banco)</label><input class="num" type="number" step="0.01" id="saldoCorrigidoInput" placeholder="0,00"></div>
+        <button class="btn btn-primary" id="confirmarCorrecaoSaldo">Aplicar correção</button>
+      </div>
+    </div>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar lançamento' : 'Novo lançamento'}</h2></div>
@@ -505,15 +522,17 @@ function renderExtrato(){
   <div class="card">
     <div class="card-head"><h2>Lançamentos</h2><span class="badge-count">${txs.length}</span></div>
     ${linhas.length===0? '<div class="empty">Nenhum lançamento nesta conta ainda.</div>' : `
+    <div class="hint" style="margin-bottom:10px;">Para desfazer um pagamento ou recebimento, use <b>"Estornar"</b> em vez de excluir — assim o lançamento original fica registrado no mês em que aconteceu (sem alterar a DRE de meses passados), e um lançamento de estorno é criado na data de hoje.</div>
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
     <tbody>${linhas.map(({t,saldo})=>`
-      <tr>
+      <tr style="${t.estornado?'opacity:0.6;':''}">
         <td>${fmtDate(t.data)}</td>
-        <td>${escHtml(t.descricao)}</td>
+        <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''}</td>
         <td class="muted">${escHtml(catLabel(t.categoria))}</td>
         <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
         <td class="num">${fmtMoney(saldo)}</td>
         <td style="white-space:nowrap;">
+          ${!t.estornado && !t.estornoDe? `<button class="btn-ghost" data-estornar-tx="${t.id}">Estornar</button>` : ''}
           <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
           <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
         </td>
@@ -1009,6 +1028,10 @@ function eventosAgendaTodos(){
     id:n.id, data:n.data, tipoLabel:'Nota fiscal', cor:'amber',
     titulo:`Nº ${n.numero} — ${n.parte}`, valor:n.valor, origem:'nota'
   }));
+  state.crm.filter(c=> c.proximoContato && c.etapa!=='fechado' && c.etapa!=='perdido').forEach(c=> eventos.push({
+    id:c.id, data:c.proximoContato, tipoLabel:'Follow-up CRM', cor:'amber',
+    titulo:`Falar com ${c.nome}` + (c.empresa? ' — '+c.empresa:''), origem:'crm'
+  }));
   return eventos.filter(e=>e.data).sort((a,b)=> a.data.localeCompare(b.data));
 }
 function eventosDoDia(dataISO){
@@ -1062,12 +1085,192 @@ function linhaEventoAgenda(ev){
       <button class="btn-ghost" data-concluir-agenda="${ev.id}">${ev.concluido? 'Reabrir' : 'Concluir'}</button>
       <button class="btn-ghost" data-editar-agenda="${ev.id}">Editar</button>
       <button class="btn-danger-ghost" data-del-agenda="${ev.id}">Excluir</button>
-    ` : `<span class="muted" style="font-size:11px;">via ${ev.origem==='pagar'?'Contas a pagar':ev.origem==='receber'?'Contas a receber':'Notas fiscais'}</span>`}
+    ` : `<span class="muted" style="font-size:11px;">via ${ev.origem==='pagar'?'Contas a pagar':ev.origem==='receber'?'Contas a receber':ev.origem==='crm'?'CRM':'Notas fiscais'}</span>`}
   </div>`;
 }
 
-/* ---------------- Handlers ---------------- */
+/* ---------------- CRM ---------------- */
+const CRM_ETAPAS = [
+  {id:'lead', label:'Novo lead', cor:'gray'},
+  {id:'negociacao', label:'Em negociação', cor:'amber'},
+  {id:'fechado', label:'Fechado', cor:'green'},
+  {id:'perdido', label:'Perdido', cor:'red'}
+];
+const CRM_INTERACAO_TIPOS = ['Ligação','WhatsApp','E-mail','Reunião','Nota'];
+function crmEtapaInfo(id){ return CRM_ETAPAS.find(e=>e.id===id) || CRM_ETAPAS[0]; }
+function renderCRM(){
+  const edit = estadoEdicao.crm ? state.crm.find(c=>c.id===estadoEdicao.crm) : null;
+  const selecionado = crmSelecionado ? state.crm.find(c=>c.id===crmSelecionado) : null;
+  const hoje = todayISO();
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar contato' : 'Novo contato no CRM'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.2fr 1fr 1fr 1fr 1fr auto;">
+      <div class="field"><label>Nome</label><input id="crmNome" placeholder="Nome do contato" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>Empresa (opcional)</label><input id="crmEmpresa" placeholder="Empresa" value="${edit? escAttr(edit.empresa||''):''}"></div>
+      <div class="field"><label>Telefone</label><input id="crmTelefone" placeholder="(00) 00000-0000" value="${edit? escAttr(edit.telefone||''):''}"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="crmEmail" placeholder="contato@email.com" value="${edit? escAttr(edit.email||''):''}"></div>
+      <div class="field"><label>Valor potencial</label><input class="num" type="number" step="0.01" id="crmValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+      <button class="btn btn-primary" id="addCrm">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoCrm" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Funil</h2><span class="hint">Arraste os cartões entre as colunas para mudar a etapa</span></div>
+    <div style="display:flex; gap:12px; overflow-x:auto; padding-bottom:6px;">
+      ${CRM_ETAPAS.map(etapa=>{
+        const contatos = state.crm.filter(c=>c.etapa===etapa.id);
+        const totalValor = contatos.reduce((s,c)=> s+(c.valor||0), 0);
+        return `
+        <div data-crm-column="${etapa.id}" style="flex:0 0 240px; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px; min-height:120px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <span class="pill ${etapa.cor}">${etapa.label}</span>
+            <span class="muted" style="font-size:11px;">${contatos.length}</span>
+          </div>
+          ${totalValor>0? `<div class="muted" style="font-size:11px; margin-bottom:8px;">${fmtMoney(totalValor)}</div>` : ''}
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${contatos.map(c=>{
+              const atrasado = c.proximoContato && c.proximoContato < hoje;
+              return `
+              <div data-crm-card="${c.id}" draggable="true" style="background:var(--surface); border:1px solid ${c.id===crmSelecionado?'var(--accent)':'var(--line)'}; border-radius:8px; padding:9px 10px; cursor:pointer;">
+                <div style="font-size:13px; font-weight:500;">${escHtml(c.nome)}</div>
+                ${c.empresa? `<div class="muted" style="font-size:11.5px;">${escHtml(c.empresa)}</div>`:''}
+                ${c.valor? `<div class="num" style="font-size:12px; margin-top:4px;">${fmtMoney(c.valor)}</div>`:''}
+                ${c.proximoContato? `<div style="font-size:11px; margin-top:4px; color:${atrasado?'var(--danger)':'var(--ink-faint)'};">${atrasado?'Atrasado — ':'Follow-up: '}${fmtDate(c.proximoContato)}</div>`:''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+  ${selecionado? renderCrmDetalhe(selecionado) : ''}
+  `;
+}
+function renderCrmDetalhe(c){
+  const interacoes = [...(c.interacoes||[])].sort((a,b)=> b.data.localeCompare(a.data));
+  return `
+  <div class="card" style="border-color:var(--accent);">
+    <div class="card-head">
+      <h2>${escHtml(c.nome)}</h2>
+      <div>
+        <button class="btn-ghost" data-editar-crm="${c.id}">Editar dados</button>
+        <button class="btn-danger-ghost" data-del-crm="${c.id}">Excluir contato</button>
+        <button class="btn-ghost" id="fecharCrmDetalhe">Fechar</button>
+      </div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
+      <div class="field"><label>Etapa</label><select data-crm-etapa="${c.id}">
+        ${CRM_ETAPAS.map(e=>`<option value="${e.id}" ${c.etapa===e.id?'selected':''}>${e.label}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Próximo follow-up</label><input type="date" data-crm-followup="${c.id}" value="${c.proximoContato||''}"></div>
+      <button class="btn" data-crm-limpar-followup="${c.id}" style="align-self:end;">Remover follow-up</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">${escHtml(c.telefone||'—')} · ${escHtml(c.email||'—')}${c.empresa? ' · '+escHtml(c.empresa):''}</div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Registrar interação</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 2fr 1fr auto;">
+      <div class="field"><label>Tipo</label><select id="crmIntTipo">${CRM_INTERACAO_TIPOS.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+      <div class="field"><label>Nota</label><input id="crmIntNota" placeholder="O que foi conversado..."></div>
+      <div class="field"><label>Data</label><input type="date" id="crmIntData" value="${todayISO()}"></div>
+      <button class="btn btn-primary" data-crm-add-interacao="${c.id}">Registrar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Histórico</h2><span class="badge-count">${interacoes.length}</span></div>
+    ${interacoes.length===0? '<div class="empty">Nenhuma interação registrada ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${interacoes.map(i=>`
+        <div style="display:flex; align-items:flex-start; gap:10px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 12px;">
+          <span class="pill gray" style="flex-shrink:0;">${escHtml(i.tipo)}</span>
+          <div style="flex:1;">
+            <div style="font-size:13px;">${escHtml(i.nota||'—')}</div>
+            <div class="muted" style="font-size:11px; margin-top:2px;">${fmtDate(i.data)}</div>
+          </div>
+          <button class="btn-danger-ghost" data-crm-del-interacao="${c.id}:${i.id}">Excluir</button>
+        </div>`).join('')}
+    </div>`}
+  </div>`;
+}
 function attachHandlers(){
+  const addCrm = document.getElementById('addCrm');
+  if(addCrm){
+    addCrm.onclick = ()=>{
+      const nome = document.getElementById('crmNome').value.trim();
+      if(!nome){ document.getElementById('crmNome').focus(); return; }
+      const dados = {
+        nome,
+        empresa: document.getElementById('crmEmpresa').value.trim(),
+        telefone: document.getElementById('crmTelefone').value.trim(),
+        email: document.getElementById('crmEmail').value.trim(),
+        valor: parseFloat(document.getElementById('crmValor').value)||0
+      };
+      if(estadoEdicao.crm){
+        const item = state.crm.find(c=>c.id===estadoEdicao.crm);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.crm = null;
+      } else {
+        state.crm.push({ id: uid(), ...dados, etapa:'lead', proximoContato:null, interacoes:[] });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-crm]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.crm = b.dataset.editarCrm; render();
+  });
+  const cancelarEdicaoCrm = document.getElementById('cancelarEdicaoCrm');
+  if(cancelarEdicaoCrm) cancelarEdicaoCrm.onclick = ()=>{ estadoEdicao.crm=null; render(); };
+  document.querySelectorAll('[data-del-crm]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir este contato e todo o histórico de interações dele?')) return;
+    state.crm = state.crm.filter(c=>c.id!==b.dataset.delCrm);
+    if(crmSelecionado===b.dataset.delCrm) crmSelecionado=null;
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-crm-card]').forEach(el=>{
+    el.addEventListener('click', ()=>{ crmSelecionado = el.dataset.crmCard; render(); });
+    el.addEventListener('dragstart', e=> e.dataTransfer.setData('text/plain', el.dataset.crmCard));
+  });
+  document.querySelectorAll('[data-crm-column]').forEach(col=>{
+    col.addEventListener('dragover', e=> e.preventDefault());
+    col.addEventListener('drop', e=>{
+      e.preventDefault();
+      const id = e.dataTransfer.getData('text/plain');
+      const contato = state.crm.find(c=>c.id===id);
+      if(contato){ contato.etapa = col.dataset.crmColumn; render(); saveState(); }
+    });
+  });
+  const fecharCrmDetalhe = document.getElementById('fecharCrmDetalhe');
+  if(fecharCrmDetalhe) fecharCrmDetalhe.onclick = ()=>{ crmSelecionado=null; render(); };
+  document.querySelectorAll('[data-crm-etapa]').forEach(sel=> sel.onchange = ()=>{
+    const c = state.crm.find(c=>c.id===sel.dataset.crmEtapa);
+    if(c){ c.etapa = sel.value; render(); saveState(); }
+  });
+  document.querySelectorAll('[data-crm-followup]').forEach(inp=> inp.onchange = ()=>{
+    const c = state.crm.find(c=>c.id===inp.dataset.crmFollowup);
+    if(c){ c.proximoContato = inp.value || null; render(); saveState(); }
+  });
+  document.querySelectorAll('[data-crm-limpar-followup]').forEach(b=> b.onclick = ()=>{
+    const c = state.crm.find(c=>c.id===b.dataset.crmLimparFollowup);
+    if(c){ c.proximoContato = null; render(); saveState(); }
+  });
+  document.querySelectorAll('[data-crm-add-interacao]').forEach(b=> b.onclick = ()=>{
+    const c = state.crm.find(c=>c.id===b.dataset.crmAddInteracao);
+    if(!c) return;
+    const tipo = document.getElementById('crmIntTipo').value;
+    const nota = document.getElementById('crmIntNota').value.trim();
+    const data = document.getElementById('crmIntData').value || todayISO();
+    if(!c.interacoes) c.interacoes = [];
+    c.interacoes.push({ id: uid(), tipo, nota, data });
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-crm-del-interacao]').forEach(b=> b.onclick = ()=>{
+    const [contatoId, interacaoId] = b.dataset.crmDelInteracao.split(':');
+    const c = state.crm.find(c=>c.id===contatoId);
+    if(c){ c.interacoes = (c.interacoes||[]).filter(i=>i.id!==interacaoId); render(); saveState(); }
+  });
+
+
   const addAgenda = document.getElementById('addAgenda');
   if(addAgenda){
     addAgenda.onclick = async ()=>{
@@ -1082,7 +1285,7 @@ function attachHandlers(){
       } else {
         state.agenda.push({ id: uid(), data, titulo, descricao, concluido:false });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-agenda]').forEach(b=> b.onclick = ()=>{
@@ -1093,18 +1296,18 @@ function attachHandlers(){
   document.querySelectorAll('[data-del-agenda]').forEach(b=> b.onclick = async ()=>{
     state.agenda = state.agenda.filter(a=>a.id!==b.dataset.delAgenda);
     if(estadoEdicao.agenda===b.dataset.delAgenda) estadoEdicao.agenda=null;
-    await saveState(); render();
+    render(); saveState();
   });
   document.querySelectorAll('[data-concluir-agenda]').forEach(b=> b.onclick = async ()=>{
     const item = state.agenda.find(a=>a.id===b.dataset.concluirAgenda);
-    if(item){ item.concluido = !item.concluido; await saveState(); render(); }
+    if(item){ item.concluido = !item.concluido; render(); saveState(); }
   });
 
   const empresaNomeInput = document.getElementById('empresaNomeInput');
   if(empresaNomeInput){
     document.getElementById('salvarEmpresa').onclick = async ()=>{
       state.empresa.nome = empresaNomeInput.value.trim() || 'Minha Empresa';
-      await saveState(); render();
+      render(); saveState();
     };
   }
 
@@ -1205,7 +1408,7 @@ function attachHandlers(){
       } else {
         state.fornecedores.push({ id: uid(), ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-fornecedor]').forEach(b=> b.onclick = ()=>{
@@ -1218,7 +1421,7 @@ function attachHandlers(){
   document.querySelectorAll('[data-del-fornecedor]').forEach(b=> b.onclick = async ()=>{
     if(!confirm('Excluir este cliente?')) return;
     state.fornecedores = state.fornecedores.filter(f=>f.id!==b.dataset.delFornecedor);
-    await saveState(); render();
+    render(); saveState();
   });
 
   const addConta = document.getElementById('addConta');
@@ -1240,7 +1443,7 @@ function attachHandlers(){
       } else {
         state.contas.push({ id: uid(), ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-conta]').forEach(b=> b.onclick = ()=>{
@@ -1253,11 +1456,33 @@ function attachHandlers(){
     const id = b.dataset.delConta;
     state.contas = state.contas.filter(c=>c.id!==id);
     state.transacoes = state.transacoes.filter(t=>t.contaId!==id);
-    await saveState(); render();
+    render(); saveState();
   });
 
   const extratoConta = document.getElementById('extratoConta');
-  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; render(); };
+  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; render(); };
+  const toggleCorrecaoSaldo = document.getElementById('toggleCorrecaoSaldo');
+  if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; render(); };
+  const confirmarCorrecaoSaldo = document.getElementById('confirmarCorrecaoSaldo');
+  if(confirmarCorrecaoSaldo){
+    confirmarCorrecaoSaldo.onclick = ()=>{
+      const novoSaldo = parseFloat(document.getElementById('saldoCorrigidoInput').value);
+      if(isNaN(novoSaldo)){ return; }
+      const atual = saldoConta(extratoContaSel);
+      const diferenca = novoSaldo - atual;
+      if(Math.abs(diferenca) < 0.005){ mostrarCorrecaoSaldo = false; render(); return; }
+      state.transacoes.push({
+        id: uid(), contaId: extratoContaSel,
+        data: todayISO(),
+        descricao: 'Correção de saldo',
+        tipo: diferenca > 0 ? 'credito' : 'debito',
+        valor: Math.abs(diferenca),
+        categoria: 'ajuste_saldo'
+      });
+      mostrarCorrecaoSaldo = false;
+      render(); saveState();
+    };
+  }
 
   const addTx = document.getElementById('addTx');
   if(addTx){
@@ -1279,7 +1504,7 @@ function attachHandlers(){
       } else {
         state.transacoes.push({ id: uid(), contaId: extratoContaSel, ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-tx]').forEach(b=> b.onclick = ()=>{
@@ -1287,9 +1512,26 @@ function attachHandlers(){
   });
   const cancelarEdicaoTx = document.getElementById('cancelarEdicaoTx');
   if(cancelarEdicaoTx) cancelarEdicaoTx.onclick = ()=>{ estadoEdicao.tx=null; render(); };
+  document.querySelectorAll('[data-estornar-tx]').forEach(b=> b.onclick = ()=>{
+    const original = state.transacoes.find(t=>t.id===b.dataset.estornarTx);
+    if(!original) return;
+    if(!confirm(`Estornar "${original.descricao}" (${fmtMoney(original.valor)})? Isso cria um lançamento de estorno hoje, sem apagar o lançamento original.`)) return;
+    original.estornado = true;
+    state.transacoes.push({
+      id: uid(), contaId: original.contaId,
+      data: todayISO(),
+      descricao: 'Estorno: ' + original.descricao,
+      tipo: original.tipo==='credito' ? 'debito' : 'credito',
+      valor: original.valor,
+      categoria: original.categoria,
+      estornoDe: original.id
+    });
+    render(); saveState();
+  });
   document.querySelectorAll('[data-del-tx]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Excluir remove o lançamento por completo, inclusive do histórico da DRE daquele mês. Para desfazer um pagamento sem alterar meses passados, prefira "Estornar". Deseja mesmo excluir?')) return;
     state.transacoes = state.transacoes.filter(t=>t.id!==b.dataset.delTx);
-    await saveState(); render();
+    render(); saveState();
   });
 
   const ofxInput = document.getElementById('ofxInput');
@@ -1322,7 +1564,7 @@ function attachHandlers(){
         });
       });
       ofxPreview = null;
-      await saveState(); render();
+      render(); saveState();
     };
   }
   const cancelarImportOfx = document.getElementById('cancelarImportOfx');
@@ -1350,7 +1592,7 @@ function attachHandlers(){
       } else {
         state.notas.push({ id: uid(), ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-nota]').forEach(b=> b.onclick = ()=>{
@@ -1360,11 +1602,11 @@ function attachHandlers(){
   if(cancelarEdicaoNota) cancelarEdicaoNota.onclick = ()=>{ estadoEdicao.nota=null; render(); };
   document.querySelectorAll('[data-toggle-pago-nota]').forEach(b=> b.onclick = async ()=>{
     const n = state.notas.find(n=>n.id===b.dataset.togglePagoNota);
-    if(n){ n.status = n.status==='paga' ? 'pendente' : 'paga'; await saveState(); render(); }
+    if(n){ n.status = n.status==='paga' ? 'pendente' : 'paga'; render(); saveState(); }
   });
   document.querySelectorAll('[data-del-nota]').forEach(b=> b.onclick = async ()=>{
     state.notas = state.notas.filter(n=>n.id!==b.dataset.delNota);
-    await saveState(); render();
+    render(); saveState();
   });
 
   document.querySelectorAll('[data-add-conta]').forEach(btn=> btn.onclick = async ()=>{
@@ -1390,7 +1632,7 @@ function attachHandlers(){
       const item = { id: uid(), status:'pendente', ...dados };
       if(tipo==='pagar') state.contasPagar.push(item); else state.contasReceber.push(item);
     }
-    await saveState(); render();
+    render(); saveState();
   });
   document.querySelectorAll('[data-editar-conta-mov]').forEach(btn=> btn.onclick = ()=>{
     const [tipo, id] = btn.dataset.editarContaMov.split(':');
@@ -1409,8 +1651,25 @@ function attachHandlers(){
     const item = lista.find(i=>i.id===id);
     if(!item) return;
     if(item.status==='pago'){
+      if(!confirm('Isso vai estornar o lançamento criado no extrato bancário (sem apagar o histórico) e marcar como pendente novamente. Continuar?')) return;
+      const original = item.transacaoId ? state.transacoes.find(t=>t.id===item.transacaoId) : null;
+      if(original && !original.estornado){
+        original.estornado = true;
+        state.transacoes.push({
+          id: uid(), contaId: original.contaId,
+          data: todayISO(),
+          descricao: 'Estorno: ' + original.descricao,
+          tipo: original.tipo==='credito' ? 'debito' : 'credito',
+          valor: original.valor,
+          categoria: original.categoria,
+          estornoDe: original.id
+        });
+      }
       item.status = 'pendente';
-      await saveState(); render();
+      item.contaId = null;
+      item.dataPagamento = null;
+      item.transacaoId = null;
+      render(); saveState();
       return;
     }
     const sel = document.querySelector(`[data-conta-select="${tipo}:${id}"]`);
@@ -1419,22 +1678,24 @@ function attachHandlers(){
     item.status = 'pago';
     item.contaId = contaId;
     item.dataPagamento = todayISO();
+    const novaTxId = uid();
+    item.transacaoId = novaTxId;
     state.transacoes.push({
-      id: uid(), contaId,
+      id: novaTxId, contaId,
       data: todayISO(),
       descricao: (tipo==='pagar'? 'Pagamento: ' : 'Recebimento: ') + item.descricao + (item.parte? ' — '+item.parte : ''),
       tipo: tipo==='pagar'? 'debito' : 'credito',
       valor: item.valor,
       categoria: item.categoria
     });
-    await saveState(); render();
+    render(); saveState();
   });
 
   document.querySelectorAll('[data-del-conta-mov]').forEach(btn=> btn.onclick = async ()=>{
     const [tipo, id] = btn.dataset.delContaMov.split(':');
     if(tipo==='pagar') state.contasPagar = state.contasPagar.filter(i=>i.id!==id);
     else state.contasReceber = state.contasReceber.filter(i=>i.id!==id);
-    await saveState(); render();
+    render(); saveState();
   });
 
   const addCliente = document.getElementById('addCliente');
@@ -1462,7 +1723,7 @@ function attachHandlers(){
       } else {
         state.clientes.push({ id: uid(), ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-cliente]').forEach(b=> b.onclick = ()=>{
@@ -1474,12 +1735,12 @@ function attachHandlers(){
   if(clienteFiltroSel) clienteFiltroSel.onchange = ()=>{ clienteFiltro = clienteFiltroSel.value; render(); };
   document.querySelectorAll('[data-status-cliente]').forEach(sel=> sel.onchange = async ()=>{
     const c = state.clientes.find(c=>c.id===sel.dataset.statusCliente);
-    if(c){ c.status = sel.value; await saveState(); render(); }
+    if(c){ c.status = sel.value; render(); saveState(); }
   });
   document.querySelectorAll('[data-del-cliente]').forEach(b=> b.onclick = async ()=>{
     if(!confirm('Excluir este consorciado?')) return;
     state.clientes = state.clientes.filter(c=>c.id!==b.dataset.delCliente);
-    await saveState(); render();
+    render(); saveState();
   });
 
   const dreMesSel = document.getElementById('dreMes');
@@ -1505,7 +1766,7 @@ function attachHandlers(){
       } else {
         state.plano.push({ id: uid(), ...dados });
       }
-      await saveState(); render();
+      render(); saveState();
     };
   }
   document.querySelectorAll('[data-editar-plano]').forEach(b=> b.onclick = ()=>{
@@ -1515,7 +1776,7 @@ function attachHandlers(){
   if(cancelarEdicaoPlano) cancelarEdicaoPlano.onclick = ()=>{ estadoEdicao.plano=null; render(); };
   document.querySelectorAll('[data-del-plano]').forEach(b=> b.onclick = async ()=>{
     state.plano = state.plano.filter(p=>p.id!==b.dataset.delPlano);
-    await saveState(); render();
+    render(); saveState();
   });
 }
 
@@ -1654,4 +1915,3 @@ document.getElementById('loginUsuario').addEventListener('keydown', e=>{ if(e.ke
 </script>
 </body>
 </html>
-
