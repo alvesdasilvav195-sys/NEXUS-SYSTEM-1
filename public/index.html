@@ -55,6 +55,15 @@
   .nav-item.active{ background:var(--accent); color:#fff; }
   .nav-dot{ width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.55; flex-shrink:0;}
   .nav-item.active .nav-dot{ opacity:1;}
+  .nav-group-head{
+    display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 10px; border-radius:8px;
+    color:#CFD6CB; font-size:13.5px; cursor:pointer; border:none; background:transparent; width:100%; font-family:inherit;
+  }
+  .nav-group-head:hover{ background:rgba(255,255,255,.06); color:#fff; }
+  .nav-group-head .chev{ transition:transform .15s ease; opacity:.6; font-size:11px; }
+  .nav-group-head.open .chev{ transform:rotate(90deg); }
+  .nav-group-items{ padding-left:14px; display:flex; flex-direction:column; gap:2px; margin-bottom:2px; }
+  .nav-group-items .nav-item{ font-size:13px; }
   .sidebar-foot{ margin-top:auto; padding:10px 8px; font-size:11px; color:#8E9A8E; border-top:1px solid rgba(255,255,255,.09); padding-top:14px;}
 
   /* Main */
@@ -127,6 +136,7 @@
     .main{ padding:20px; }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 <div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);">
@@ -154,19 +164,7 @@
         <div class="brand-sub">Livro · ERP</div>
       </div>
     </div>
-    <button class="nav-item" data-tab="dashboard"><span class="nav-dot"></span>Dashboard</button>
-    <button class="nav-item" data-tab="agenda"><span class="nav-dot"></span>Agenda</button>
-    <button class="nav-item" data-tab="crm"><span class="nav-dot"></span>CRM</button>
-    <button class="nav-item" data-tab="contas"><span class="nav-dot"></span>Contas bancárias</button>
-    <button class="nav-item" data-tab="extrato"><span class="nav-dot"></span>Extrato bancário</button>
-    <button class="nav-item" data-tab="apagarreceber"><span class="nav-dot"></span>Contas a pagar/receber</button>
-    <button class="nav-item" data-tab="fornecedores"><span class="nav-dot"></span>Clientes</button>
-    <button class="nav-item" data-tab="notas"><span class="nav-dot"></span>Notas fiscais</button>
-    <button class="nav-item" data-tab="clientes"><span class="nav-dot"></span>Consorciados</button>
-    <button class="nav-item" data-tab="dre"><span class="nav-dot"></span>DRE</button>
-    <button class="nav-item" data-tab="balancete"><span class="nav-dot"></span>Balancete</button>
-    <button class="nav-item" data-tab="acesso"><span class="nav-dot"></span>Acesso e senha</button>
-    <button class="nav-item" data-tab="backup"><span class="nav-dot"></span>Backup e atualização</button>
+    <div id="navContainer"></div>
     <div class="sidebar-foot">
       <span id="statusSalvamento">Salvo no servidor</span>
       <button class="btn-ghost" id="logoutBtn" style="padding:0; margin-top:6px; color:#CFD6CB; text-decoration:underline;">Sair</button>
@@ -210,6 +208,87 @@ const CATEGORIAS = [
 ];
 const catLabel = id => (CATEGORIAS.find(c=>c.id===id)||{}).label || id;
 
+/* ---------------- Pix (BR Code) ---------------- */
+function pixEMV(id, valor){ return id + String(valor.length).padStart(2,'0') + valor; }
+function removerAcentos(s){ return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function crc16(payload){
+  let crc = 0xFFFF;
+  for(let i=0;i<payload.length;i++){
+    crc ^= (payload.charCodeAt(i) << 8);
+    for(let j=0;j<8;j++){
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+      crc &= 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function gerarPayloadPix(chave, valor, nome, cidade, txid){
+  const nomeUp = removerAcentos(nome||'Recebedor').toUpperCase().slice(0,25) || 'RECEBEDOR';
+  const cidadeUp = removerAcentos(cidade||'BRASIL').toUpperCase().slice(0,15) || 'BRASIL';
+  const txidLimpo = (txid||'***').replace(/[^A-Za-z0-9*]/g,'').slice(0,25) || '***';
+  const gui = pixEMV('00','br.gov.bcb.pix');
+  const chaveCampo = pixEMV('01', chave);
+  const merchantAccount = pixEMV('26', gui + chaveCampo);
+  const valorStr = valor && valor>0 ? valor.toFixed(2) : '';
+  let payload =
+    pixEMV('00','01') +
+    merchantAccount +
+    pixEMV('52','0000') +
+    pixEMV('53','986') +
+    (valorStr ? pixEMV('54', valorStr) : '') +
+    pixEMV('58','BR') +
+    pixEMV('59', nomeUp) +
+    pixEMV('60', cidadeUp) +
+    pixEMV('62', pixEMV('05', txidLimpo));
+  payload += '6304';
+  const crc = crc16(payload);
+  return payload + crc;
+}
+function gerarQrPixDataURL(chave, valor, nome, cidade, txid){
+  return new Promise((resolve)=>{
+    if(!chave || typeof QRCode==='undefined'){ resolve(null); return; }
+    try{
+      const temp = document.createElement('div');
+      temp.style.position = 'fixed';
+      temp.style.left = '-9999px';
+      document.body.appendChild(temp);
+      const payload = gerarPayloadPix(chave, valor, nome, cidade, txid);
+      new QRCode(temp, { text: payload, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+      setTimeout(()=>{
+        const canvas = temp.querySelector('canvas');
+        const dataUrl = canvas ? canvas.toDataURL('image/png') : null;
+        document.body.removeChild(temp);
+        resolve(dataUrl);
+      }, 60);
+    }catch(e){ console.error('Erro ao gerar QR Pix', e); resolve(null); }
+  });
+}
+
+/* ---------------- Impressão ---------------- */
+function imprimirHtml(titulo, corpoHtml){
+  const janela = window.open('', '_blank');
+  janela.document.write(`
+    <html><head><title>${titulo}</title>
+    <meta charset="UTF-8">
+    <style>
+      body{ font-family: Arial, Helvetica, sans-serif; color:#1C2321; padding:28px; }
+      table{ width:100%; border-collapse:collapse; font-size:13px; }
+      th,td{ text-align:left; padding:6px 8px; border-bottom:1px solid #ddd; }
+      th{ text-transform:uppercase; font-size:10.5px; color:#666; }
+      .num{ text-align:right; font-variant-numeric:tabular-nums; }
+      h1{ font-size:20px; margin:0 0 4px; }
+      h2{ font-size:14px; margin:18px 0 6px; }
+      .muted{ color:#666; font-size:12px; }
+      .totais div{ display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #eee; }
+      .totais div.total{ font-weight:bold; border-top:2px solid #333; border-bottom:none; margin-top:4px; padding-top:8px; }
+      @media print{ body{ padding:0; } }
+    </style>
+    </head><body>${corpoHtml}</body></html>
+  `);
+  janela.document.close();
+  setTimeout(()=>{ janela.focus(); janela.print(); }, 400);
+}
+
 /* ---------------- Estado + persistência ---------------- */
 let state = {
   empresa: { nome:'Minha Empresa' },
@@ -222,7 +301,9 @@ let state = {
   contasReceber: [],
   fornecedores: [],
   agenda: [],
-  crm: []
+  crm: [],
+  faturas: [],
+  proLabore: []
 };
 
 function planoPadrao(){
@@ -257,6 +338,8 @@ async function loadState(){
   if(!state.fornecedores) state.fornecedores = [];
   if(!state.agenda) state.agenda = [];
   if(!state.crm) state.crm = [];
+  if(!state.faturas) state.faturas = [];
+  if(!state.proLabore) state.proLabore = [];
 }
 
 let saveTimer=null;
@@ -350,19 +433,72 @@ const TITLES = {
   balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
+  faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
+  prolabore:['Pró-labore','Gere a folha de pró-labore em PDF'],
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null };
 let crmSelecionado = null;
+const NAV_ESTRUTURA = [
+  {tipo:'item', tab:'dashboard', label:'Dashboard'},
+  {tipo:'item', tab:'agenda', label:'Agenda'},
+  {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
+    {tab:'crm', label:'CRM'},
+    {tab:'clientes', label:'Consorciados'}
+  ]},
+  {tipo:'item', tab:'fornecedores', label:'Clientes'},
+  {tipo:'grupo', id:'financeiro', label:'Financeiro', itens:[
+    {tab:'contas', label:'Contas bancárias'},
+    {tab:'extrato', label:'Extrato bancário'},
+    {tab:'apagarreceber', label:'Contas a pagar/receber'},
+    {tab:'notas', label:'Notas fiscais'},
+    {tab:'dre', label:'DRE'},
+    {tab:'balancete', label:'Balancete'}
+  ]},
+  {tipo:'item', tab:'faturas', label:'Faturas de cobrança'},
+  {tipo:'item', tab:'prolabore', label:'Pró-labore'},
+  {tipo:'item', tab:'acesso', label:'Acesso e senha'},
+  {tipo:'item', tab:'backup', label:'Backup e atualização'}
+];
+function tabParaGrupo(tab){
+  for(const bloco of NAV_ESTRUTURA){
+    if(bloco.tipo==='grupo' && bloco.itens.some(i=>i.tab===tab)) return bloco.id;
+  }
+  return null;
+}
+let gruposAbertos = { relacionamento:false, financeiro:false };
+function renderNav(){
+  const nav = document.getElementById('navContainer');
+  if(!nav) return;
+  nav.innerHTML = NAV_ESTRUTURA.map(bloco=>{
+    if(bloco.tipo==='item'){
+      return `<button class="nav-item ${activeTab===bloco.tab?'active':''}" data-tab="${bloco.tab}"><span class="nav-dot"></span>${bloco.label}</button>`;
+    }
+    const aberto = gruposAbertos[bloco.id];
+    return `
+      <button class="nav-group-head ${aberto?'open':''}" data-grupo="${bloco.id}">
+        <span>${bloco.label}</span><span class="chev">▶</span>
+      </button>
+      ${aberto? `<div class="nav-group-items">
+        ${bloco.itens.map(i=>`<button class="nav-item ${activeTab===i.tab?'active':''}" data-tab="${i.tab}"><span class="nav-dot"></span>${i.label}</button>`).join('')}
+      </div>` : ''}`;
+  }).join('');
+  nav.querySelectorAll('[data-tab]').forEach(b=> b.onclick = ()=> setTab(b.dataset.tab));
+  nav.querySelectorAll('[data-grupo]').forEach(b=> b.onclick = ()=>{
+    gruposAbertos[b.dataset.grupo] = !gruposAbertos[b.dataset.grupo];
+    renderNav();
+  });
+}
 function setTab(tab){
   activeTab = tab;
-  document.querySelectorAll('.nav-item').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+  const grupo = tabParaGrupo(tab);
+  if(grupo) gruposAbertos[grupo] = true;
+  renderNav();
   document.getElementById('pageTitle').textContent = TITLES[tab][0];
   document.getElementById('pageSub').textContent = TITLES[tab][1];
   render();
 }
-document.querySelectorAll('.nav-item').forEach(b=> b.addEventListener('click', ()=>setTab(b.dataset.tab)));
 
 /* ---------------- Render dispatcher ---------------- */
 function render(){
@@ -371,6 +507,8 @@ function render(){
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='crm') view.innerHTML = renderCRM();
+  if(activeTab==='faturas') view.innerHTML = renderFaturas();
+  if(activeTab==='prolabore') view.innerHTML = renderProLabore();
   if(activeTab==='contas') view.innerHTML = renderContas();
   if(activeTab==='extrato') view.innerHTML = renderExtrato();
   if(activeTab==='apagarreceber') view.innerHTML = renderContasPagarReceber();
@@ -412,9 +550,21 @@ function renderDashboard(){
     <div class="kpi"><div class="label">Notas fiscais pendentes</div><div class="value">${notasAbertas}</div></div>
   </div>
   <div class="card">
-    <div class="card-head"><h2>Nome da empresa</h2></div>
-    <div class="form-grid" style="grid-template-columns:1fr auto;">
-      <div class="field"><input id="empresaNomeInput" value="${escAttr(state.empresa.nome)}" placeholder="Nome da sua empresa"></div>
+    <div class="card-head"><h2>Dados da empresa</h2><span class="hint">Usados nas faturas e no pró-labore</span></div>
+    <div class="form-grid" style="grid-template-columns:1.4fr 1fr 1.2fr;">
+      <div class="field"><label>Nome / Razão social</label><input id="empresaNomeInput" value="${escAttr(state.empresa.nome)}" placeholder="Nome da sua empresa"></div>
+      <div class="field"><label>CNPJ / CPF</label><input id="empresaDocInput" value="${escAttr(state.empresa.doc||'')}" placeholder="00.000.000/0000-00"></div>
+      <div class="field"><label>Endereço</label><input id="empresaEnderecoInput" value="${escAttr(state.empresa.endereco||'')}" placeholder="Rua, número, cidade/UF"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Telefone</label><input id="empresaTelefoneInput" value="${escAttr(state.empresa.telefone||'')}" placeholder="(00) 00000-0000"></div>
+      <div class="field"><label>E-mail</label><input id="empresaEmailInput" value="${escAttr(state.empresa.email||'')}" placeholder="contato@empresa.com"></div>
+    </div>
+    <div class="dre-section-title">Dados de Pix (para gerar QR Code nas faturas)</div>
+    <div class="form-grid" style="grid-template-columns:1.2fr 1fr 1fr auto;">
+      <div class="field"><label>Chave Pix</label><input id="empresaPixChaveInput" value="${escAttr(state.empresa.pixChave||'')}" placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória"></div>
+      <div class="field"><label>Nome do recebedor</label><input id="empresaPixNomeInput" value="${escAttr(state.empresa.pixNome||'')}" placeholder="Nome que aparece no Pix"></div>
+      <div class="field"><label>Cidade</label><input id="empresaPixCidadeInput" value="${escAttr(state.empresa.pixCidade||'')}" placeholder="Ex: Sao Paulo"></div>
       <button class="btn btn-primary" id="salvarEmpresa">Salvar</button>
     </div>
   </div>
@@ -744,6 +894,39 @@ function statusNotaInfo(status){
   if(status==='cancelada') return {label:'Cancelada', pill:'red'};
   return {label:'Pendente', pill:'amber'};
 }
+let xmlNotaPreview = null;
+let notaVisualizada = null;
+function parseXmlNota(texto){
+  try{
+    const doc = new DOMParser().parseFromString(texto, 'text/xml');
+    if(doc.querySelector('parsererror')) return null;
+    const pegar = (...tags) => {
+      for(const tag of tags){
+        const els = doc.getElementsByTagName(tag);
+        if(els.length && els[0].textContent.trim()) return els[0].textContent.trim();
+      }
+      return '';
+    };
+    const numero = pegar('Numero','NumeroNota','nNF','numero');
+    const valorStr = pegar('ValorServicos','vNF','ValorLiquidoNfse','valorTotal','ValorTotalNota');
+    const dataStr = pegar('DataEmissao','dhEmi','dEmi','Competencia','DataHoraEmissao');
+    const tomador = pegar('RazaoSocial','xNome','Nome');
+    const valor = parseFloat((valorStr||'0').replace(',','.')) || 0;
+    let data = todayISO();
+    if(dataStr){
+      const m = dataStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if(m) data = `${m[1]}-${m[2]}-${m[3]}`;
+    }
+    const ehEntrada = doc.getElementsByTagName('nfeProc').length>0 || doc.getElementsByTagName('NFe').length>0;
+    return {
+      numero: numero || '',
+      tipo: ehEntrada ? 'recebida' : 'emitida',
+      parte: tomador || '',
+      data, valor,
+      xmlRaw: texto
+    };
+  }catch(e){ console.error('Erro ao ler XML', e); return null; }
+}
 function renderNotas(){
   const notas = [...state.notas].sort((a,b)=> b.data.localeCompare(a.data));
   const edit = estadoEdicao.nota ? state.notas.find(n=>n.id===estadoEdicao.nota) : null;
@@ -773,6 +956,12 @@ function renderNotas(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
+    <div class="card-head"><h2>Importar nota fiscal (XML)</h2></div>
+    <div class="hint" style="margin-bottom:10px;">Selecione o arquivo .xml da nota. Como cada prefeitura usa um formato próprio de NFS-e (não existe padrão único no Brasil), a extração automática é feita por aproximação — confira os campos antes de salvar. O XML original fica guardado e pode ser consultado depois em "Ver nota completa".</div>
+    <input type="file" id="xmlNotaInput" accept=".xml,text/xml">
+    ${xmlNotaPreview? renderXmlNotaPreview() : ''}
+  </div>
+  <div class="card">
     <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
     ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
     <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Observações</th><th></th></tr></thead>
@@ -788,6 +977,7 @@ function renderNotas(){
         <td><span class="pill ${st.pill}">${st.label}</span></td>
         <td class="muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
         <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-ver-nota="${n.id}">Ver nota completa</button>
           ${n.status!=='cancelada'? `<button class="btn-ghost" data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
           <button class="btn-ghost" data-editar-nota="${n.id}">Editar</button>
           <button class="btn-danger-ghost" data-del-nota="${n.id}">Excluir</button>
@@ -796,6 +986,53 @@ function renderNotas(){
     }).join('')}
     </tbody></table>`}
     <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Use esta aba para controlar a emissão e o status das notas fiscais.</div>
+  </div>
+  ${notaVisualizada? renderNotaCompleta() : ''}`;
+}
+function renderXmlNotaPreview(){
+  if(!xmlNotaPreview){
+    return `<div class="hint" style="margin-top:10px;">Não foi possível ler nenhuma nota nesse arquivo.</div>`;
+  }
+  const p = xmlNotaPreview;
+  return `
+  <div style="margin-top:14px; border-top:1px solid var(--line); padding-top:12px;">
+    <div class="hint" style="margin-bottom:8px;">Confira e ajuste os campos antes de importar:</div>
+    <div class="form-grid" style="grid-template-columns:0.8fr 1.1fr 1.4fr 0.9fr 1fr;">
+      <div class="field"><label>Número</label><input id="xmlNumero" value="${escAttr(p.numero||'')}"></div>
+      <div class="field"><label>Tipo</label><select id="xmlTipo">
+        <option value="emitida" ${p.tipo==='emitida'?'selected':''}>Emitida (venda)</option>
+        <option value="recebida" ${p.tipo==='recebida'?'selected':''}>Recebida (compra)</option>
+        <option value="nota_comissao" ${p.tipo==='nota_comissao'?'selected':''}>Nota de comissão</option>
+      </select></div>
+      <div class="field"><label>Cliente / Fornecedor</label><input id="xmlParte" value="${escAttr(p.parte||'')}"></div>
+      <div class="field"><label>Data</label><input type="date" id="xmlData" value="${p.data||todayISO()}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="xmlValor" value="${p.valor||''}"></div>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:8px;">
+      <button class="btn btn-primary" id="confirmarImportXml">Importar esta nota</button>
+      <button class="btn" id="cancelarImportXml">Cancelar</button>
+    </div>
+  </div>`;
+}
+function renderNotaCompleta(){
+  const n = notaVisualizada;
+  const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
+  const st = statusNotaInfo(n.status);
+  return `
+  <div class="card" style="border-color:var(--accent);">
+    <div class="card-head"><h2>Nota nº ${escHtml(n.numero)}</h2><button class="btn-ghost" id="fecharNotaCompleta">Fechar</button></div>
+    <table style="font-size:13px;"><tbody>
+      <tr><td class="muted" style="width:160px;">Tipo</td><td><span class="pill ${t.pill}">${t.label}</span></td></tr>
+      <tr><td class="muted">Cliente / Fornecedor</td><td>${escHtml(n.parte)}</td></tr>
+      <tr><td class="muted">Data</td><td>${fmtDate(n.data)}</td></tr>
+      <tr><td class="muted">Valor</td><td>${fmtMoney(n.valor)}</td></tr>
+      <tr><td class="muted">Status</td><td><span class="pill ${st.pill}">${st.label}</span></td></tr>
+      <tr><td class="muted">Observações</td><td>${escHtml(n.obs||'—')}</td></tr>
+    </tbody></table>
+    ${n.xmlRaw? `
+    <div class="dre-section-title">XML original importado</div>
+    <textarea readonly style="width:100%; height:220px; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg);">${escHtml(n.xmlRaw)}</textarea>
+    ` : `<div class="hint" style="margin-top:10px;">Esta nota foi cadastrada manualmente, sem um arquivo XML vinculado.</div>`}
   </div>`;
 }
 
@@ -914,7 +1151,7 @@ function renderDRE(){
   const line = (lbl,val,opts={})=>`<div class="dre-line ${opts.total?'total':''} ${opts.sub?'sub':''}"><div class="lbl">${lbl}</div><div class="num ${val<0?'neg':opts.total?(val>=0?'pos':'neg'):''}">${fmtMoney(val)}</div></div>`;
   return `
   <div class="card">
-    <div class="card-head"><h2>Período</h2></div>
+    <div class="card-head"><h2>Período</h2><button class="btn-ghost" id="imprimirDre">Imprimir / PDF</button></div>
     <select id="dreMes">${MESES.map((m,i)=>`<option value="${i}" ${i===dreMes?'selected':''}>${m}</option>`).join('')}</select>
     <select id="dreAno">${anos.map(a=>`<option value="${a}" ${a===dreAno?'selected':''}>${a}</option>`).join('')}</select>
     <div class="hint" style="margin-top:8px;">Calculada por regime de caixa, a partir das categorias lançadas no extrato bancário.</div>
@@ -941,18 +1178,11 @@ function renderDRE(){
 }
 
 /* ---------------- BALANCETE ---------------- */
-function renderBalancete(){
+function calcularBalancete(){
   const totalCaixa = state.contas.reduce((s,c)=> s + saldoConta(c.id), 0);
   const {receitas, despesas} = totalReceitasDespesasGeral();
   const grupos = ['Ativo','Passivo','Patrimônio Líquido','Resultado'];
   let totalD=0, totalC=0;
-  const linhas = state.plano.map(p=>{
-    let saldo = p.saldoManual || 0;
-    if(p.auto==='caixa'||p.auto==='bancos'){
-      saldo = 0;
-    }
-    return p;
-  });
   const contasAutoBanco = state.plano.filter(p=>p.auto==='caixa'||p.auto==='bancos');
   const linhasCalc = state.plano.map(p=>{
     let saldo;
@@ -970,9 +1200,16 @@ function renderBalancete(){
     totalD += devedor; totalC += credor;
     return {...p, devedor, credor};
   });
-  const diff = totalD - totalC;
+  return { grupos, linhasCalc, totalD, totalC, diff: totalD-totalC };
+}
+function renderBalancete(){
+  const {grupos, linhasCalc, totalD, totalC, diff} = calcularBalancete();
   const edit = estadoEdicao.plano ? state.plano.find(p=>p.id===estadoEdicao.plano) : null;
   return `
+  <div class="card">
+    <div class="card-head"><h2>Balancete</h2><button class="btn-ghost" id="imprimirBalancete">Imprimir / PDF</button></div>
+    <div class="hint">Posição atual das contas patrimoniais e de resultado.</div>
+  </div>
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar conta contábil' : 'Adicionar conta contábil'}</h2></div>
     <div class="form-grid" style="grid-template-columns:1fr 1.6fr 0.8fr 1fr auto;">
@@ -1193,7 +1430,340 @@ function renderCrmDetalhe(c){
     </div>`}
   </div>`;
 }
+/* ---------------- FATURAS DE COBRANÇA ---------------- */
+function listaContatosCobranca(){
+  const lista = [];
+  state.fornecedores.forEach(f=> lista.push({ref:'cliente:'+f.id, nome:f.nome, doc:f.doc||'', email:f.email||'', telefone:f.telefone||''}));
+  state.clientes.forEach(c=> lista.push({ref:'consorciado:'+c.id, nome:c.nome+' (consorciado)', doc:'', email:c.email||'', telefone:c.contato||''}));
+  return lista;
+}
+function statusFatura(f){
+  if(f.contasReceberId){
+    const cr = state.contasReceber.find(i=>i.id===f.contasReceberId);
+    if(cr) return statusConta(cr);
+  }
+  return f.status || 'pendente';
+}
+function renderFaturas(){
+  const edit = estadoEdicao.fatura ? state.faturas.find(f=>f.id===estadoEdicao.fatura) : null;
+  const contatos = listaContatosCobranca();
+  const proximoNumero = String(state.faturas.length + 1).padStart(4,'0');
+  const lista = [...state.faturas].sort((a,b)=> b.dataEmissao.localeCompare(a.dataEmissao));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar fatura' : 'Nova fatura de cobrança'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:0.7fr 1.4fr 1fr 1fr;">
+      <div class="field"><label>Número</label><input id="ftNumero" value="${edit? escAttr(edit.numero) : proximoNumero}"></div>
+      <div class="field"><label>Cliente</label><select id="ftContato">
+        <option value="">-- selecione ou digite abaixo --</option>
+        ${contatos.map(c=>`<option value="${c.ref}" ${edit&&edit.contatoRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+        <option value="avulso" ${edit&&edit.contatoRef==='avulso'?'selected':''}>Outro (digitar nome manualmente)</option>
+      </select></div>
+      <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${edit? edit.dataEmissao : todayISO()}"></div>
+      <div class="field"><label>Vencimento</label><input type="date" id="ftVencimento" value="${edit? edit.vencimento : todayISO()}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Nome do cliente (se "Outro")</label><input id="ftNomeManual" placeholder="Nome completo" value="${edit&&edit.contatoRef==='avulso'? escAttr(edit.nomeCliente):''}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="ftValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Serviço prestado / descrição</label><input id="ftDescricao" placeholder="Descreva o serviço cobrado nesta fatura" value="${edit? escAttr(edit.descricao||''):''}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Vincular nota fiscal (opcional)</label><select id="ftNotaFiscal">
+        <option value="">-- nenhuma --</option>
+        ${state.notas.map(n=>`<option value="${n.id}" ${edit&&edit.notaFiscalId===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+    </div>
+    <button class="btn btn-primary" id="addFatura" style="margin-top:12px;">${edit? 'Salvar alterações' : 'Gerar fatura'}</button>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoFatura" style="margin-top:12px; margin-left:8px;">Cancelar edição</button>` : ''}
+    ${!edit? `<div class="hint" style="margin-top:10px;">Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o mesmo valor e vencimento.</div>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Faturas emitidas</h2><span class="badge-count">${lista.length}</span></div>
+    ${lista.length===0? '<div class="empty">Nenhuma fatura gerada ainda.</div>' : `
+    <table><thead><tr><th>Nº</th><th>Cliente</th><th>Emissão</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${lista.map(f=>{
+      const st = statusFatura(f);
+      const p = st==='pago'?{c:'green',l:'Paga'}:st==='atrasado'?{c:'red',l:'Atrasada'}:{c:'amber',l:'Pendente'};
+      return `<tr>
+        <td>${escHtml(f.numero)}</td>
+        <td>${escHtml(f.nomeCliente)}</td>
+        <td class="muted">${fmtDate(f.dataEmissao)}</td>
+        <td class="muted">${fmtDate(f.vencimento)}</td>
+        <td class="num">${fmtMoney(f.valor)}</td>
+        <td><span class="pill ${p.c}">${p.l}</span></td>
+        <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
+          <button class="btn-ghost" data-editar-fatura="${f.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-fatura="${f.id}">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+async function imprimirFatura(fatura){
+  const emp = state.empresa;
+  const nota = fatura.notaFiscalId ? state.notas.find(n=>n.id===fatura.notaFiscalId) : null;
+  const qrDataUrl = emp.pixChave ? await gerarQrPixDataURL(emp.pixChave, fatura.valor, emp.pixNome||emp.nome, emp.pixCidade, 'FAT'+fatura.numero) : null;
+  const corpo = `
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1C2321; padding-bottom:14px; margin-bottom:18px;">
+      <div>
+        <h1>${escHtml(emp.nome||'Minha Empresa')}</h1>
+        <div class="muted">${escHtml(emp.doc||'')}</div>
+        <div class="muted">${escHtml(emp.endereco||'')}</div>
+        <div class="muted">${escHtml(emp.telefone||'')} ${emp.email? ' · '+escHtml(emp.email):''}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="muted" style="font-size:11px;">FATURA</div>
+        <div style="font-size:22px; font-weight:bold;">Nº ${escHtml(fatura.numero)}</div>
+        <div class="muted">Emissão: ${fmtDate(fatura.dataEmissao)}</div>
+        <div class="muted">Vencimento: ${fmtDate(fatura.vencimento)}</div>
+      </div>
+    </div>
+    <h2>Cobrado de</h2>
+    <div>${escHtml(fatura.nomeCliente)}</div>
+    <h2>Serviço prestado</h2>
+    <div>${escHtml(fatura.descricao||'—')}</div>
+    ${nota? `<h2>Nota fiscal vinculada</h2><div>Nº ${escHtml(nota.numero)} — emitida em ${fmtDate(nota.data)} — ${fmtMoney(nota.valor)}</div>` : ''}
+    <h2>Valor cobrado</h2>
+    <div style="font-size:26px; font-weight:bold;">${fmtMoney(fatura.valor)}</div>
+    ${qrDataUrl? `
+    <h2>Pagamento via Pix</h2>
+    <div style="display:flex; align-items:center; gap:16px;">
+      <img src="${qrDataUrl}" style="width:150px; height:150px;">
+      <div class="muted">Chave Pix: ${escHtml(emp.pixChave)}<br>Recebedor: ${escHtml(emp.pixNome||emp.nome)}<br>Escaneie o QR Code com o app do seu banco.</div>
+    </div>` : ''}
+  `;
+  imprimirHtml(`Fatura ${fatura.numero}`, corpo);
+}
+
+/* ---------------- PRÓ-LABORE ---------------- */
+function renderProLabore(){
+  const edit = estadoEdicao.proLabore ? state.proLabore.find(p=>p.id===estadoEdicao.proLabore) : null;
+  const lista = [...state.proLabore].sort((a,b)=> b.competencia.localeCompare(a.competencia));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar pró-labore' : 'Novo pró-labore'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1.2fr 1fr auto;">
+      <div class="field"><label>Mês de referência</label><input type="month" id="plCompetencia" value="${edit? edit.competencia : todayISO().slice(0,7)}"></div>
+      <div class="field"><label>Sócio / beneficiário</label><input id="plNome" placeholder="Nome completo" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>Valor bruto</label><input class="num" type="number" step="0.01" id="plBruto" placeholder="0,00" value="${edit? edit.bruto:''}"></div>
+      <button class="btn btn-primary" id="addProLabore" style="align-self:end;">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Desconto INSS (sugestão: 11% sobre o bruto, respeitando o teto do INSS)</label><input class="num" type="number" step="0.01" id="plInss" placeholder="0,00" value="${edit? edit.inss:''}"></div>
+      <div class="field"><label>Desconto IRRF</label><input class="num" type="number" step="0.01" id="plIrrf" placeholder="0,00" value="${edit? edit.irrf:''}"></div>
+    </div>
+    <div class="hint" style="margin-top:8px;">Os percentuais de INSS e IRRF mudam conforme a legislação vigente — confirme os valores com seu contador antes de gerar o recibo definitivo.</div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoProLabore" style="margin-top:10px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Histórico</h2><span class="badge-count">${lista.length}</span></div>
+    ${lista.length===0? '<div class="empty">Nenhum pró-labore gerado ainda.</div>' : `
+    <table><thead><tr><th>Competência</th><th>Sócio</th><th class="num">Bruto</th><th class="num">INSS</th><th class="num">IRRF</th><th class="num">Líquido</th><th></th></tr></thead>
+    <tbody>${lista.map(p=>{
+      const liquido = p.bruto - (p.inss||0) - (p.irrf||0);
+      return `<tr>
+        <td>${p.competencia}</td>
+        <td>${escHtml(p.nome)}</td>
+        <td class="num">${fmtMoney(p.bruto)}</td>
+        <td class="num">${fmtMoney(p.inss||0)}</td>
+        <td class="num">${fmtMoney(p.irrf||0)}</td>
+        <td class="num" style="font-weight:600;">${fmtMoney(liquido)}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-ver-prolabore="${p.id}">Ver / Imprimir PDF</button>
+          <button class="btn-ghost" data-editar-prolabore="${p.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-prolabore="${p.id}">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+function imprimirProLabore(p){
+  const emp = state.empresa;
+  const liquido = p.bruto - (p.inss||0) - (p.irrf||0);
+  const [ano,mes] = p.competencia.split('-');
+  const corpo = `
+    <div style="border-bottom:2px solid #1C2321; padding-bottom:14px; margin-bottom:18px;">
+      <h1>${escHtml(emp.nome||'Minha Empresa')}</h1>
+      <div class="muted">${escHtml(emp.doc||'')}</div>
+      <div class="muted">${escHtml(emp.endereco||'')}</div>
+    </div>
+    <h1 style="font-size:16px;">Recibo de Pró-labore — ${MESES[parseInt(mes)-1]}/${ano}</h1>
+    <div>Beneficiário: <b>${escHtml(p.nome)}</b></div>
+    <table style="margin-top:16px;">
+      <tr><td>Valor bruto</td><td class="num">${fmtMoney(p.bruto)}</td></tr>
+      <tr><td>(-) INSS</td><td class="num">${fmtMoney(p.inss||0)}</td></tr>
+      <tr><td>(-) IRRF</td><td class="num">${fmtMoney(p.irrf||0)}</td></tr>
+      <tr style="font-weight:bold;"><td>Valor líquido</td><td class="num">${fmtMoney(liquido)}</td></tr>
+    </table>
+    <div class="muted" style="margin-top:40px;">Declaro ter recebido o valor líquido acima referente ao pró-labore de ${MESES[parseInt(mes)-1]}/${ano}.</div>
+    <div style="margin-top:50px;">_______________________________________<br>${escHtml(p.nome)}</div>
+  `;
+  imprimirHtml(`Pró-labore ${p.competencia}`, corpo);
+}
+
+function imprimirDRE(mes, ano){
+  const d = calcularDRE(mes, ano);
+  const linha = (lbl,val)=>`<tr><td>${lbl}</td><td class="num">${fmtMoney(val)}</td></tr>`;
+  const corpo = `
+    <h1>${escHtml(state.empresa.nome||'Minha Empresa')}</h1>
+    <div class="muted">DRE — ${MESES[mes]}/${ano}</div>
+    <table style="margin-top:16px;">
+      ${linha('Receita bruta de serviços', d.receitaBruta)}
+      ${linha('(-) Impostos e deduções', -d.deducoes)}
+      ${linha('(=) Receita líquida', d.receitaLiquida)}
+      ${linha('(-) Custo dos serviços prestados', -d.custoServicos)}
+      ${linha('(=) Lucro bruto', d.lucroBruto)}
+      ${linha('(-) Despesas com pessoal', -d.despPessoal)}
+      ${linha('(-) Despesas administrativas', -d.despAdmin)}
+      ${linha('(-) Despesas comerciais', -d.despComercial)}
+      ${linha('(=) Resultado operacional', d.resultadoOperacional)}
+      ${linha('Receitas financeiras', d.receitaFin)}
+      ${linha('(-) Despesas financeiras', -d.despFin)}
+      ${linha('Outras receitas', d.outrasReceitas)}
+      ${linha('(-) Outras despesas', -d.outrasDespesas)}
+    </table>
+    <div class="totais" style="margin-top:16px;"><div class="total"><span>Resultado líquido do período</span><span>${fmtMoney(d.resultadoLiquido)}</span></div></div>
+  `;
+  imprimirHtml(`DRE ${MESES[mes]}-${ano}`, corpo);
+}
+function imprimirBalancete(){
+  const {grupos, linhasCalc, totalD, totalC} = calcularBalancete();
+  const corpo = `
+    <h1>${escHtml(state.empresa.nome||'Minha Empresa')}</h1>
+    <div class="muted">Balancete — ${fmtDate(todayISO())}</div>
+    ${grupos.map(g=>{
+      const rows = linhasCalc.filter(l=>l.grupo===g);
+      if(rows.length===0) return '';
+      return `<h2>${g}</h2><table><tr><th>Conta</th><th class="num">Devedor</th><th class="num">Credor</th></tr>
+        ${rows.map(r=>`<tr><td>${escHtml(r.conta)}</td><td class="num">${r.devedor?fmtMoney(r.devedor):'—'}</td><td class="num">${r.credor?fmtMoney(r.credor):'—'}</td></tr>`).join('')}
+      </table>`;
+    }).join('')}
+    <div class="totais" style="margin-top:16px;">
+      <div><span>Total devedor</span><span>${fmtMoney(totalD)}</span></div>
+      <div class="total"><span>Total credor</span><span>${fmtMoney(totalC)}</span></div>
+    </div>
+  `;
+  imprimirHtml('Balancete', corpo);
+}
+
 function attachHandlers(){
+  const addFatura = document.getElementById('addFatura');
+  if(addFatura){
+    addFatura.onclick = ()=>{
+      const numero = document.getElementById('ftNumero').value.trim();
+      const contatoRef = document.getElementById('ftContato').value;
+      const nomeManual = document.getElementById('ftNomeManual').value.trim();
+      const valor = parseFloat(document.getElementById('ftValor').value);
+      const descricao = document.getElementById('ftDescricao').value.trim();
+      if(!numero || !valor || (!contatoRef) || (contatoRef==='avulso' && !nomeManual)){
+        alert('Preencha ao menos número, cliente e valor.'); return;
+      }
+      let nomeCliente = nomeManual;
+      if(contatoRef!=='avulso'){
+        const c = listaContatosCobranca().find(c=>c.ref===contatoRef);
+        nomeCliente = c ? c.nome : nomeManual;
+      }
+      const dados = {
+        numero, contatoRef, nomeCliente,
+        dataEmissao: document.getElementById('ftDataEmissao').value || todayISO(),
+        vencimento: document.getElementById('ftVencimento').value || todayISO(),
+        valor: Math.abs(valor),
+        descricao,
+        notaFiscalId: document.getElementById('ftNotaFiscal').value || null,
+        categoria: document.getElementById('ftCategoria').value
+      };
+      if(estadoEdicao.fatura){
+        const item = state.faturas.find(f=>f.id===estadoEdicao.fatura);
+        if(item){
+          Object.assign(item, dados);
+          if(item.contasReceberId){
+            const cr = state.contasReceber.find(c=>c.id===item.contasReceberId);
+            if(cr && cr.status!=='pago'){
+              cr.descricao = 'Fatura nº '+numero+' — '+nomeCliente;
+              cr.parte = nomeCliente;
+              cr.valor = dados.valor;
+              cr.vencimento = dados.vencimento;
+              cr.categoria = dados.categoria;
+            }
+          }
+        }
+        estadoEdicao.fatura = null;
+      } else {
+        const faturaId = uid();
+        const receberId = uid();
+        state.contasReceber.push({
+          id: receberId,
+          descricao: 'Fatura nº '+numero+' — '+nomeCliente,
+          parte: nomeCliente,
+          valor: dados.valor,
+          vencimento: dados.vencimento,
+          categoria: dados.categoria,
+          status: 'pendente'
+        });
+        state.faturas.push({ id: faturaId, ...dados, contasReceberId: receberId, status:'pendente' });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-fatura]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.fatura = b.dataset.editarFatura; render();
+  });
+  const cancelarEdicaoFatura = document.getElementById('cancelarEdicaoFatura');
+  if(cancelarEdicaoFatura) cancelarEdicaoFatura.onclick = ()=>{ estadoEdicao.fatura=null; render(); };
+  document.querySelectorAll('[data-ver-fatura]').forEach(b=> b.onclick = ()=>{
+    const f = state.faturas.find(f=>f.id===b.dataset.verFatura);
+    if(f) imprimirFatura(f);
+  });
+  document.querySelectorAll('[data-del-fatura]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir esta fatura? O lançamento em Contas a receber criado por ela não será apagado — se quiser removê-lo também, exclua manualmente em "Contas a pagar/receber".')) return;
+    state.faturas = state.faturas.filter(f=>f.id!==b.dataset.delFatura);
+    render(); saveState();
+  });
+
+  const addProLabore = document.getElementById('addProLabore');
+  if(addProLabore){
+    addProLabore.onclick = ()=>{
+      const competencia = document.getElementById('plCompetencia').value;
+      const nome = document.getElementById('plNome').value.trim();
+      const bruto = parseFloat(document.getElementById('plBruto').value);
+      if(!competencia || !nome || !bruto){ alert('Preencha mês, sócio e valor bruto.'); return; }
+      const dados = {
+        competencia, nome, bruto: Math.abs(bruto),
+        inss: parseFloat(document.getElementById('plInss').value)||0,
+        irrf: parseFloat(document.getElementById('plIrrf').value)||0
+      };
+      if(estadoEdicao.proLabore){
+        const item = state.proLabore.find(p=>p.id===estadoEdicao.proLabore);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.proLabore = null;
+      } else {
+        state.proLabore.push({ id: uid(), ...dados });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-prolabore]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.proLabore = b.dataset.editarProlabore; render();
+  });
+  const cancelarEdicaoProLabore = document.getElementById('cancelarEdicaoProLabore');
+  if(cancelarEdicaoProLabore) cancelarEdicaoProLabore.onclick = ()=>{ estadoEdicao.proLabore=null; render(); };
+  document.querySelectorAll('[data-ver-prolabore]').forEach(b=> b.onclick = ()=>{
+    const p = state.proLabore.find(p=>p.id===b.dataset.verProlabore);
+    if(p) imprimirProLabore(p);
+  });
+  document.querySelectorAll('[data-del-prolabore]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir este registro de pró-labore?')) return;
+    state.proLabore = state.proLabore.filter(p=>p.id!==b.dataset.delProlabore);
+    render(); saveState();
+  });
+
+
   const addCrm = document.getElementById('addCrm');
   if(addCrm){
     addCrm.onclick = ()=>{
@@ -1305,8 +1875,15 @@ function attachHandlers(){
 
   const empresaNomeInput = document.getElementById('empresaNomeInput');
   if(empresaNomeInput){
-    document.getElementById('salvarEmpresa').onclick = async ()=>{
+    document.getElementById('salvarEmpresa').onclick = ()=>{
       state.empresa.nome = empresaNomeInput.value.trim() || 'Minha Empresa';
+      state.empresa.doc = document.getElementById('empresaDocInput').value.trim();
+      state.empresa.endereco = document.getElementById('empresaEnderecoInput').value.trim();
+      state.empresa.telefone = document.getElementById('empresaTelefoneInput').value.trim();
+      state.empresa.email = document.getElementById('empresaEmailInput').value.trim();
+      state.empresa.pixChave = document.getElementById('empresaPixChaveInput').value.trim();
+      state.empresa.pixNome = document.getElementById('empresaPixNomeInput').value.trim();
+      state.empresa.pixCidade = document.getElementById('empresaPixCidadeInput').value.trim();
       render(); saveState();
     };
   }
@@ -1608,6 +2185,49 @@ function attachHandlers(){
     state.notas = state.notas.filter(n=>n.id!==b.dataset.delNota);
     render(); saveState();
   });
+  document.querySelectorAll('[data-ver-nota]').forEach(b=> b.onclick = ()=>{
+    notaVisualizada = state.notas.find(n=>n.id===b.dataset.verNota);
+    render();
+  });
+  const fecharNotaCompleta = document.getElementById('fecharNotaCompleta');
+  if(fecharNotaCompleta) fecharNotaCompleta.onclick = ()=>{ notaVisualizada=null; render(); };
+
+  const xmlNotaInput = document.getElementById('xmlNotaInput');
+  if(xmlNotaInput){
+    xmlNotaInput.onchange = ()=>{
+      const file = xmlNotaInput.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (e)=>{
+        xmlNotaPreview = parseXmlNota(e.target.result);
+        if(!xmlNotaPreview) alert('Não foi possível ler este arquivo como XML de nota fiscal.');
+        render();
+      };
+      reader.readAsText(file);
+    };
+  }
+  const confirmarImportXml = document.getElementById('confirmarImportXml');
+  if(confirmarImportXml){
+    confirmarImportXml.onclick = ()=>{
+      const numero = document.getElementById('xmlNumero').value.trim();
+      const parte = document.getElementById('xmlParte').value.trim();
+      const valor = parseFloat(document.getElementById('xmlValor').value);
+      if(!numero || !parte || !valor){ alert('Preencha ao menos número, cliente/fornecedor e valor.'); return; }
+      state.notas.push({
+        id: uid(), numero, parte,
+        tipo: document.getElementById('xmlTipo').value,
+        data: document.getElementById('xmlData').value || todayISO(),
+        valor: Math.abs(valor),
+        status: 'pendente',
+        obs: '',
+        xmlRaw: xmlNotaPreview.xmlRaw
+      });
+      xmlNotaPreview = null;
+      render(); saveState();
+    };
+  }
+  const cancelarImportXml = document.getElementById('cancelarImportXml');
+  if(cancelarImportXml) cancelarImportXml.onclick = ()=>{ xmlNotaPreview=null; render(); };
 
   document.querySelectorAll('[data-add-conta]').forEach(btn=> btn.onclick = async ()=>{
     const tipo = btn.dataset.addConta;
@@ -1747,6 +2367,10 @@ function attachHandlers(){
   const dreAnoSel = document.getElementById('dreAno');
   if(dreMesSel) dreMesSel.onchange = ()=>{ dreMes = parseInt(dreMesSel.value); render(); };
   if(dreAnoSel) dreAnoSel.onchange = ()=>{ dreAno = parseInt(dreAnoSel.value); render(); };
+  const imprimirDreBtn = document.getElementById('imprimirDre');
+  if(imprimirDreBtn) imprimirDreBtn.onclick = ()=> imprimirDRE(dreMes, dreAno);
+  const imprimirBalanceteBtn = document.getElementById('imprimirBalancete');
+  if(imprimirBalanceteBtn) imprimirBalanceteBtn.onclick = ()=> imprimirBalancete();
 
   const addPlano = document.getElementById('addPlano');
   if(addPlano){
