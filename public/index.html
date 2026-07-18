@@ -303,7 +303,10 @@ let state = {
   agenda: [],
   crm: [],
   faturas: [],
-  proLabore: []
+  proLabore: [],
+  cartoes: [],
+  cartaoLancamentos: [],
+  emprestimos: []
 };
 
 function planoPadrao(){
@@ -340,6 +343,9 @@ async function loadState(){
   if(!state.crm) state.crm = [];
   if(!state.faturas) state.faturas = [];
   if(!state.proLabore) state.proLabore = [];
+  if(!state.cartoes) state.cartoes = [];
+  if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
+  if(!state.emprestimos) state.emprestimos = [];
 }
 
 let saveTimer=null;
@@ -432,34 +438,40 @@ const TITLES = {
   dre:['DRE','Demonstração do Resultado do Exercício, por regime de caixa'],
   balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
+  configEmpresa:['Dados da empresa','Usados nas faturas e no pró-labore'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
+  cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
   prolabore:['Pró-labore','Gere a folha de pró-labore em PDF'],
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null };
 let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
   {tipo:'item', tab:'agenda', label:'Agenda'},
   {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
     {tab:'crm', label:'CRM'},
-    {tab:'clientes', label:'Consorciados'}
+    {tab:'clientes', label:'Consorciados'},
+    {tab:'fornecedores', label:'Clientes'}
   ]},
-  {tipo:'item', tab:'fornecedores', label:'Clientes'},
   {tipo:'grupo', id:'financeiro', label:'Financeiro', itens:[
     {tab:'contas', label:'Contas bancárias'},
     {tab:'extrato', label:'Extrato bancário'},
     {tab:'apagarreceber', label:'Contas a pagar/receber'},
+    {tab:'cartoes', label:'Cartões e empréstimos'},
     {tab:'notas', label:'Notas fiscais'},
+    {tab:'faturas', label:'Faturas de cobrança'},
+    {tab:'prolabore', label:'Pró-labore'},
     {tab:'dre', label:'DRE'},
     {tab:'balancete', label:'Balancete'}
   ]},
-  {tipo:'item', tab:'faturas', label:'Faturas de cobrança'},
-  {tipo:'item', tab:'prolabore', label:'Pró-labore'},
-  {tipo:'item', tab:'acesso', label:'Acesso e senha'},
-  {tipo:'item', tab:'backup', label:'Backup e atualização'}
+  {tipo:'grupo', id:'configuracoes', label:'Configurações', itens:[
+    {tab:'configEmpresa', label:'Dados da empresa'},
+    {tab:'acesso', label:'Acesso e senha'},
+    {tab:'backup', label:'Backup e atualização'}
+  ]}
 ];
 function tabParaGrupo(tab){
   for(const bloco of NAV_ESTRUTURA){
@@ -467,7 +479,7 @@ function tabParaGrupo(tab){
   }
   return null;
 }
-let gruposAbertos = { relacionamento:false, financeiro:false };
+let gruposAbertos = { relacionamento:false, financeiro:false, configuracoes:false };
 function renderNav(){
   const nav = document.getElementById('navContainer');
   if(!nav) return;
@@ -508,6 +520,7 @@ function render(){
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='crm') view.innerHTML = renderCRM();
   if(activeTab==='faturas') view.innerHTML = renderFaturas();
+  if(activeTab==='cartoes') view.innerHTML = renderCartoesEmprestimos();
   if(activeTab==='prolabore') view.innerHTML = renderProLabore();
   if(activeTab==='contas') view.innerHTML = renderContas();
   if(activeTab==='extrato') view.innerHTML = renderExtrato();
@@ -518,6 +531,7 @@ function render(){
   if(activeTab==='dre') view.innerHTML = renderDRE();
   if(activeTab==='balancete') view.innerHTML = renderBalancete();
   if(activeTab==='acesso') view.innerHTML = renderAcesso();
+  if(activeTab==='configEmpresa') view.innerHTML = renderConfigEmpresa();
   if(activeTab==='backup') view.innerHTML = renderBackup();
   attachHandlers();
 }
@@ -550,6 +564,17 @@ function renderDashboard(){
     <div class="kpi"><div class="label">Notas fiscais pendentes</div><div class="value">${notasAbertas}</div></div>
   </div>
   <div class="card">
+    <div class="card-head"><h2>Últimos lançamentos</h2><span class="hint">Extrato bancário</span></div>
+    ${ultimasTx.length===0? '<div class="empty">Nenhum lançamento ainda. Vá até "Extrato bancário" para adicionar o primeiro.</div>' : `
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th class="num">Valor</th></tr></thead><tbody>
+      ${ultimasTx.map(t=>`<tr><td>${fmtDate(t.data)}</td><td>${escHtml(t.descricao)}</td><td class="muted">${escHtml(contaNome(t.contaId))}</td>
+      <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td></tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+function renderConfigEmpresa(){
+  return `
+  <div class="card">
     <div class="card-head"><h2>Dados da empresa</h2><span class="hint">Usados nas faturas e no pró-labore</span></div>
     <div class="form-grid" style="grid-template-columns:1.4fr 1fr 1.2fr;">
       <div class="field"><label>Nome / Razão social</label><input id="empresaNomeInput" value="${escAttr(state.empresa.nome)}" placeholder="Nome da sua empresa"></div>
@@ -567,14 +592,6 @@ function renderDashboard(){
       <div class="field"><label>Cidade</label><input id="empresaPixCidadeInput" value="${escAttr(state.empresa.pixCidade||'')}" placeholder="Ex: Sao Paulo"></div>
       <button class="btn btn-primary" id="salvarEmpresa">Salvar</button>
     </div>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>Últimos lançamentos</h2><span class="hint">Extrato bancário</span></div>
-    ${ultimasTx.length===0? '<div class="empty">Nenhum lançamento ainda. Vá até "Extrato bancário" para adicionar o primeiro.</div>' : `
-    <table><thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th class="num">Valor</th></tr></thead><tbody>
-      ${ultimasTx.map(t=>`<tr><td>${fmtDate(t.data)}</td><td>${escHtml(t.descricao)}</td><td class="muted">${escHtml(contaNome(t.contaId))}</td>
-      <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td></tr>`).join('')}
-    </tbody></table>`}
   </div>`;
 }
 function contaNome(id){ const c = state.contas.find(c=>c.id===id); return c? (c.nome+(c.banco? ' · '+c.banco:'')) : '—'; }
@@ -642,6 +659,7 @@ function renderExtrato(){
     </select>
     <span class="pill ${saldoConta(extratoContaSel)>=0?'green':'red'}" style="margin-left:10px;">Saldo atual: ${fmtMoney(saldoConta(extratoContaSel))}</span>
     <button class="btn-ghost" id="toggleCorrecaoSaldo" style="margin-left:8px;">${mostrarCorrecaoSaldo? 'Fechar correção de saldo' : 'Corrigir saldo desta conta'}</button>
+    <button class="btn-danger-ghost" id="excluirExtratoCompleto" style="margin-left:8px;">Excluir extrato completo desta conta</button>
     ${mostrarCorrecaoSaldo? `
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">
       <div class="hint" style="margin-bottom:8px;">Use isso quando o saldo aqui não bate com o saldo real do banco. Informe o saldo correto e o sistema lança a diferença automaticamente, sem contar como receita ou despesa na DRE.</div>
@@ -739,6 +757,139 @@ function parseOFX(texto){
     });
   });
   return resultado;
+}
+
+/* ---------------- CARTÕES DE CRÉDITO E EMPRÉSTIMOS ---------------- */
+let cartaoSel = null;
+function renderCartoesEmprestimos(){
+  return `
+  ${renderBlocoCartoes()}
+  ${renderBlocoEmprestimos()}
+  `;
+}
+function renderBlocoCartoes(){
+  if(!cartaoSel || !state.cartoes.find(c=>c.id===cartaoSel)){
+    cartaoSel = state.cartoes[0] ? state.cartoes[0].id : null;
+  }
+  const editCartao = estadoEdicao.cartao ? state.cartoes.find(c=>c.id===estadoEdicao.cartao) : null;
+  const lancamentos = cartaoSel ? state.cartaoLancamentos.filter(l=>l.cartaoId===cartaoSel).sort((a,b)=> b.data.localeCompare(a.data)) : [];
+  const abertos = lancamentos.filter(l=>!l.fechado);
+  const totalAberto = abertos.reduce((s,l)=> s+l.valor, 0);
+  const editLanc = estadoEdicao.cartaoLanc ? state.cartaoLancamentos.find(l=>l.id===estadoEdicao.cartaoLanc) : null;
+  return `
+  <div class="card-head" style="margin-bottom:6px;"><h2 style="font-size:16px;">Cartões de crédito</h2></div>
+  <div class="card">
+    <div class="card-head"><h2>${editCartao? 'Editar cartão' : 'Novo cartão'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr 1fr auto;">
+      <div class="field"><label>Nome do cartão</label><input id="ccNome" placeholder="Ex: Nubank Empresarial" value="${editCartao? escAttr(editCartao.nome):''}"></div>
+      <div class="field"><label>Bandeira</label><input id="ccBandeira" placeholder="Visa, Master..." value="${editCartao? escAttr(editCartao.bandeira||''):''}"></div>
+      <div class="field"><label>Limite</label><input class="num" type="number" step="0.01" id="ccLimite" placeholder="0,00" value="${editCartao? editCartao.limite:''}"></div>
+      <div class="field"><label>Dia fechamento</label><input type="number" min="1" max="31" id="ccFechamento" placeholder="Ex: 20" value="${editCartao? editCartao.diaFechamento:''}"></div>
+      <div class="field"><label>Dia vencimento</label><input type="number" min="1" max="31" id="ccVencimento" placeholder="Ex: 28" value="${editCartao? editCartao.diaVencimento:''}"></div>
+      <button class="btn btn-primary" id="addCartao">${editCartao? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    ${editCartao? `<button class="btn-ghost" id="cancelarEdicaoCartao" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  ${state.cartoes.length===0? '<div class="card"><div class="empty">Nenhum cartão cadastrado ainda.</div></div>' : `
+  <div class="card">
+    <div class="card-head"><h2>Selecione o cartão</h2></div>
+    <select id="cartaoConta" style="width:280px;">
+      ${state.cartoes.map(c=>`<option value="${c.id}" ${c.id===cartaoSel?'selected':''}>${escHtml(c.nome)}${c.bandeira? ' · '+escHtml(c.bandeira):''}</option>`).join('')}
+    </select>
+    <span class="pill amber" style="margin-left:10px;">Fatura em aberto: ${fmtMoney(totalAberto)}</span>
+    <button class="btn-danger-ghost" data-del-cartao="${cartaoSel}" style="margin-left:10px;">Excluir cartão</button>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>${editLanc? 'Editar lançamento' : 'Novo lançamento no cartão'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:0.9fr 1.6fr 1fr 1.4fr auto;">
+      <div class="field"><label>Data</label><input type="date" id="ccLancData" value="${editLanc? editLanc.data : todayISO()}"></div>
+      <div class="field"><label>Descrição</label><input id="ccLancDesc" placeholder="Ex: Assinatura software" value="${editLanc? escAttr(editLanc.descricao):''}"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="ccLancValor" placeholder="0,00" value="${editLanc? editLanc.valor:''}"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="ccLancCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${editLanc? (editLanc.categoria===c.id?'selected':'') : (c.id==='desp_admin'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" id="addLancCartao">${editLanc? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    ${editLanc? `<button class="btn-ghost" id="cancelarEdicaoLancCartao" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Fechar fatura do cartão</h2></div>
+    <div class="hint" style="margin-bottom:10px;">Soma todos os lançamentos em aberto (${fmtMoney(totalAberto)}) e cria uma despesa na conta bancária escolhida, como pagamento da fatura.</div>
+    ${abertos.length===0? '<div class="hint">Nenhum lançamento em aberto para fechar.</div>' : state.contas.length===0? '<div class="hint">Cadastre uma conta bancária primeiro.</div>' : `
+    <select id="ccContaPagamento" style="width:260px;">
+      ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+    </select>
+    <button class="btn btn-primary" id="fecharFaturaCartao" style="margin-left:8px;">Fechar fatura e lançar pagamento</button>
+    `}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Lançamentos do cartão</h2><span class="badge-count">${lancamentos.length}</span></div>
+    ${lancamentos.length===0? '<div class="empty">Nenhum lançamento neste cartão ainda.</div>' : `
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+    <tbody>${lancamentos.map(l=>`
+      <tr>
+        <td>${fmtDate(l.data)}</td>
+        <td>${escHtml(l.descricao)}</td>
+        <td class="muted">${escHtml(catLabel(l.categoria))}</td>
+        <td class="num">${fmtMoney(l.valor)}</td>
+        <td><span class="pill ${l.fechado?'green':'amber'}">${l.fechado?'Fatura fechada':'Em aberto'}</span></td>
+        <td style="white-space:nowrap;">
+          ${!l.fechado? `<button class="btn-ghost" data-editar-lanc-cartao="${l.id}">Editar</button>`:''}
+          <button class="btn-danger-ghost" data-del-lanc-cartao="${l.id}">Excluir</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>`}
+  </div>`}
+  `;
+}
+function renderBlocoEmprestimos(){
+  const edit = estadoEdicao.emprestimo ? state.emprestimos.find(e=>e.id===estadoEdicao.emprestimo) : null;
+  const lista = [...state.emprestimos].sort((a,b)=> b.data.localeCompare(a.data));
+  return `
+  <div class="card-head" style="margin:26px 0 6px;"><h2 style="font-size:16px;">Empréstimos (cedidos ou adquiridos)</h2></div>
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar empréstimo' : 'Novo empréstimo'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1.3fr 1fr 1fr auto;">
+      <div class="field"><label>Tipo</label><select id="emTipo">
+        <option value="cedido" ${edit&&edit.tipo==='cedido'?'selected':''}>Cedido (eu emprestei)</option>
+        <option value="adquirido" ${edit&&edit.tipo==='adquirido'?'selected':''}>Adquirido (eu peguei emprestado)</option>
+      </select></div>
+      <div class="field"><label>Contraparte</label><input id="emContraparte" placeholder="Nome de quem pediu/emprestou" value="${edit? escAttr(edit.contraparte):''}"></div>
+      <div class="field"><label>Valor total</label><input class="num" type="number" step="0.01" id="emValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+      <div class="field"><label>Nº de parcelas</label><input type="number" min="1" id="emParcelas" placeholder="1" value="${edit? edit.parcelas:''}"></div>
+      <button class="btn btn-primary" id="addEmprestimo">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Data</label><input type="date" id="emData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Taxa de juros (opcional, informativo)</label><input id="emTaxa" placeholder="Ex: 2% ao mês" value="${edit? escAttr(edit.taxaJuros||''):''}"></div>
+    </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoEmprestimo" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Empréstimos cadastrados</h2><span class="badge-count">${lista.length}</span></div>
+    ${lista.length===0? '<div class="empty">Nenhum empréstimo cadastrado ainda.</div>' : `
+    <table><thead><tr><th>Tipo</th><th>Contraparte</th><th>Data</th><th class="num">Valor</th><th>Parcelas</th><th>Status</th><th></th></tr></thead>
+    <tbody>${lista.map(e=>{
+      const pagas = e.parcelasPagas||0;
+      const quitado = pagas >= e.parcelas;
+      return `<tr>
+        <td><span class="pill ${e.tipo==='cedido'?'green':'gray'}">${e.tipo==='cedido'?'Cedido':'Adquirido'}</span></td>
+        <td>${escHtml(e.contraparte)}</td>
+        <td class="muted">${fmtDate(e.data)}</td>
+        <td class="num">${fmtMoney(e.valor)}</td>
+        <td class="muted">${pagas}/${e.parcelas}</td>
+        <td><span class="pill ${quitado?'green':'amber'}">${quitado?'Quitado':'Em aberto'}</span></td>
+        <td style="white-space:nowrap;">
+          ${!quitado? `
+          <select data-emprestimo-conta-select="${e.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
+            ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+          </select>
+          <button class="btn-ghost" data-registrar-parcela="${e.id}">Registrar parcela</button>`:''}
+          <button class="btn-ghost" data-editar-emprestimo="${e.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-emprestimo="${e.id}">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`}
+  </div>`;
 }
 
 /* ---------------- CONTAS A PAGAR / A RECEBER ---------------- */
@@ -894,39 +1045,7 @@ function statusNotaInfo(status){
   if(status==='cancelada') return {label:'Cancelada', pill:'red'};
   return {label:'Pendente', pill:'amber'};
 }
-let xmlNotaPreview = null;
 let notaVisualizada = null;
-function parseXmlNota(texto){
-  try{
-    const doc = new DOMParser().parseFromString(texto, 'text/xml');
-    if(doc.querySelector('parsererror')) return null;
-    const pegar = (...tags) => {
-      for(const tag of tags){
-        const els = doc.getElementsByTagName(tag);
-        if(els.length && els[0].textContent.trim()) return els[0].textContent.trim();
-      }
-      return '';
-    };
-    const numero = pegar('Numero','NumeroNota','nNF','numero');
-    const valorStr = pegar('ValorServicos','vNF','ValorLiquidoNfse','valorTotal','ValorTotalNota');
-    const dataStr = pegar('DataEmissao','dhEmi','dEmi','Competencia','DataHoraEmissao');
-    const tomador = pegar('RazaoSocial','xNome','Nome');
-    const valor = parseFloat((valorStr||'0').replace(',','.')) || 0;
-    let data = todayISO();
-    if(dataStr){
-      const m = dataStr.match(/(\d{4})-(\d{2})-(\d{2})/);
-      if(m) data = `${m[1]}-${m[2]}-${m[3]}`;
-    }
-    const ehEntrada = doc.getElementsByTagName('nfeProc').length>0 || doc.getElementsByTagName('NFe').length>0;
-    return {
-      numero: numero || '',
-      tipo: ehEntrada ? 'recebida' : 'emitida',
-      parte: tomador || '',
-      data, valor,
-      xmlRaw: texto
-    };
-  }catch(e){ console.error('Erro ao ler XML', e); return null; }
-}
 function renderNotas(){
   const notas = [...state.notas].sort((a,b)=> b.data.localeCompare(a.data));
   const edit = estadoEdicao.nota ? state.notas.find(n=>n.id===estadoEdicao.nota) : null;
@@ -956,12 +1075,6 @@ function renderNotas(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Importar nota fiscal (XML)</h2></div>
-    <div class="hint" style="margin-bottom:10px;">Selecione o arquivo .xml da nota. Como cada prefeitura usa um formato próprio de NFS-e (não existe padrão único no Brasil), a extração automática é feita por aproximação — confira os campos antes de salvar. O XML original fica guardado e pode ser consultado depois em "Ver nota completa".</div>
-    <input type="file" id="xmlNotaInput" accept=".xml,text/xml">
-    ${xmlNotaPreview? renderXmlNotaPreview() : ''}
-  </div>
-  <div class="card">
     <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
     ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
     <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Observações</th><th></th></tr></thead>
@@ -988,31 +1101,6 @@ function renderNotas(){
     <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Use esta aba para controlar a emissão e o status das notas fiscais.</div>
   </div>
   ${notaVisualizada? renderNotaCompleta() : ''}`;
-}
-function renderXmlNotaPreview(){
-  if(!xmlNotaPreview){
-    return `<div class="hint" style="margin-top:10px;">Não foi possível ler nenhuma nota nesse arquivo.</div>`;
-  }
-  const p = xmlNotaPreview;
-  return `
-  <div style="margin-top:14px; border-top:1px solid var(--line); padding-top:12px;">
-    <div class="hint" style="margin-bottom:8px;">Confira e ajuste os campos antes de importar:</div>
-    <div class="form-grid" style="grid-template-columns:0.8fr 1.1fr 1.4fr 0.9fr 1fr;">
-      <div class="field"><label>Número</label><input id="xmlNumero" value="${escAttr(p.numero||'')}"></div>
-      <div class="field"><label>Tipo</label><select id="xmlTipo">
-        <option value="emitida" ${p.tipo==='emitida'?'selected':''}>Emitida (venda)</option>
-        <option value="recebida" ${p.tipo==='recebida'?'selected':''}>Recebida (compra)</option>
-        <option value="nota_comissao" ${p.tipo==='nota_comissao'?'selected':''}>Nota de comissão</option>
-      </select></div>
-      <div class="field"><label>Cliente / Fornecedor</label><input id="xmlParte" value="${escAttr(p.parte||'')}"></div>
-      <div class="field"><label>Data</label><input type="date" id="xmlData" value="${p.data||todayISO()}"></div>
-      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="xmlValor" value="${p.valor||''}"></div>
-    </div>
-    <div style="margin-top:10px; display:flex; gap:8px;">
-      <button class="btn btn-primary" id="confirmarImportXml">Importar esta nota</button>
-      <button class="btn" id="cancelarImportXml">Cancelar</button>
-    </div>
-  </div>`;
 }
 function renderNotaCompleta(){
   const n = notaVisualizada;
@@ -1444,30 +1532,30 @@ function statusFatura(f){
   }
   return f.status || 'pendente';
 }
+let faturaItensTemp = [];
+function totalItensFatura(){ return faturaItensTemp.reduce((s,i)=> s+(i.valor||0), 0); }
 function renderFaturas(){
   const edit = estadoEdicao.fatura ? state.faturas.find(f=>f.id===estadoEdicao.fatura) : null;
   const contatos = listaContatosCobranca();
-  const proximoNumero = String(state.faturas.length + 1).padStart(4,'0');
+  const anoAtual = new Date().getFullYear();
+  const proximoNumero = `${anoAtual}-${String(state.faturas.length + 1).padStart(4,'0')}`;
   const lista = [...state.faturas].sort((a,b)=> b.dataEmissao.localeCompare(a.dataEmissao));
   return `
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar fatura' : 'Nova fatura de cobrança'}</h2></div>
-    <div class="form-grid" style="grid-template-columns:0.7fr 1.4fr 1fr 1fr;">
+    <div class="form-grid" style="grid-template-columns:0.9fr 1.4fr 1fr;">
       <div class="field"><label>Número</label><input id="ftNumero" value="${edit? escAttr(edit.numero) : proximoNumero}"></div>
       <div class="field"><label>Cliente</label><select id="ftContato">
         <option value="">-- selecione ou digite abaixo --</option>
         ${contatos.map(c=>`<option value="${c.ref}" ${edit&&edit.contatoRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
         <option value="avulso" ${edit&&edit.contatoRef==='avulso'?'selected':''}>Outro (digitar nome manualmente)</option>
       </select></div>
+      <div class="field"><label>Nome (se "Outro")</label><input id="ftNomeManual" placeholder="Nome completo" value="${edit&&edit.contatoRef==='avulso'? escAttr(edit.nomeCliente):''}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Competência</label><input type="month" id="ftCompetencia" value="${edit? edit.competencia : todayISO().slice(0,7)}"></div>
       <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${edit? edit.dataEmissao : todayISO()}"></div>
       <div class="field"><label>Vencimento</label><input type="date" id="ftVencimento" value="${edit? edit.vencimento : todayISO()}"></div>
-    </div>
-    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
-      <div class="field"><label>Nome do cliente (se "Outro")</label><input id="ftNomeManual" placeholder="Nome completo" value="${edit&&edit.contatoRef==='avulso'? escAttr(edit.nomeCliente):''}"></div>
-      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="ftValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
-    </div>
-    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
-      <div class="field"><label>Serviço prestado / descrição</label><input id="ftDescricao" placeholder="Descreva o serviço cobrado nesta fatura" value="${edit? escAttr(edit.descricao||''):''}"></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
       <div class="field"><label>Vincular nota fiscal (opcional)</label><select id="ftNotaFiscal">
@@ -1476,9 +1564,24 @@ function renderFaturas(){
       </select></div>
       <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
     </div>
-    <button class="btn btn-primary" id="addFatura" style="margin-top:12px;">${edit? 'Salvar alterações' : 'Gerar fatura'}</button>
-    ${edit? `<button class="btn-ghost" id="cancelarEdicaoFatura" style="margin-top:12px; margin-left:8px;">Cancelar edição</button>` : ''}
-    ${!edit? `<div class="hint" style="margin-top:10px;">Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o mesmo valor e vencimento.</div>` : ''}
+
+    <div class="dre-section-title">Itens / serviços cobrados nesta fatura</div>
+    <div class="form-grid" style="grid-template-columns:2fr 1fr auto;">
+      <div class="field"><label>Descrição do item</label><input id="ftItemDesc" placeholder="Ex: Desenvolvimento de software - Sprint 01"></div>
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="ftItemValor" placeholder="0,00"></div>
+      <button class="btn" id="addItemFatura" style="align-self:end;">Adicionar item</button>
+    </div>
+    ${faturaItensTemp.length===0? '<div class="hint" style="margin-top:8px;">Nenhum item adicionado ainda.</div>' : `
+    <table style="margin-top:10px;"><thead><tr><th>Item</th><th>Descrição</th><th class="num">Valor</th><th></th></tr></thead>
+    <tbody>${faturaItensTemp.map((it,idx)=>`
+      <tr><td>${String(idx+1).padStart(3,'0')}</td><td>${escHtml(it.descricao)}</td><td class="num">${fmtMoney(it.valor)}</td>
+      <td><button class="btn-danger-ghost" data-del-item-fatura="${idx}">Remover</button></td></tr>`).join('')}
+    </tbody></table>
+    <div class="dre-line total" style="margin-top:6px;"><div class="lbl">Total da fatura</div><div class="num">${fmtMoney(totalItensFatura())}</div></div>`}
+
+    <button class="btn btn-primary" id="addFatura" style="margin-top:14px;">${edit? 'Salvar alterações' : 'Gerar fatura'}</button>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoFatura" style="margin-top:14px; margin-left:8px;">Cancelar edição</button>` : ''}
+    ${!edit? `<div class="hint" style="margin-top:10px;">Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o valor total dos itens e o vencimento informado.</div>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>Faturas emitidas</h2><span class="badge-count">${lista.length}</span></div>
@@ -1495,6 +1598,11 @@ function renderFaturas(){
         <td class="num">${fmtMoney(f.valor)}</td>
         <td><span class="pill ${p.c}">${p.l}</span></td>
         <td style="white-space:nowrap;">
+          ${st==='pago'? `<button class="btn-ghost" data-estornar-fatura="${f.id}">Estornar pagamento</button>` : `
+          <select data-fatura-conta-select="${f.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
+            ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+          </select>
+          <button class="btn-ghost" data-pagar-fatura="${f.id}">Marcar como paga</button>`}
           <button class="btn-ghost" data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
           <button class="btn-ghost" data-editar-fatura="${f.id}">Editar</button>
           <button class="btn-danger-ghost" data-del-fatura="${f.id}">Excluir</button>
@@ -1507,35 +1615,64 @@ function renderFaturas(){
 async function imprimirFatura(fatura){
   const emp = state.empresa;
   const nota = fatura.notaFiscalId ? state.notas.find(n=>n.id===fatura.notaFiscalId) : null;
-  const qrDataUrl = emp.pixChave ? await gerarQrPixDataURL(emp.pixChave, fatura.valor, emp.pixNome||emp.nome, emp.pixCidade, 'FAT'+fatura.numero) : null;
+  const st = statusFatura(fatura);
+  const statusLabel = st==='pago'?'Paga':st==='atrasado'?'Atrasada':'Pendente';
+  const itens = (fatura.itens && fatura.itens.length) ? fatura.itens : [{descricao: fatura.descricao || 'Serviço prestado', valor: fatura.valor}];
+  const qrDataUrl = emp.pixChave ? await gerarQrPixDataURL(emp.pixChave, fatura.valor, emp.pixNome||emp.nome, emp.pixCidade, 'FAT'+fatura.numero.replace(/[^A-Za-z0-9]/g,'')) : null;
+  const [anoComp, mesComp] = (fatura.competencia||todayISO().slice(0,7)).split('-');
   const corpo = `
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #1C2321; padding-bottom:14px; margin-bottom:18px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #1C2321; padding-bottom:16px; margin-bottom:18px;">
       <div>
-        <h1>${escHtml(emp.nome||'Minha Empresa')}</h1>
-        <div class="muted">${escHtml(emp.doc||'')}</div>
-        <div class="muted">${escHtml(emp.endereco||'')}</div>
-        <div class="muted">${escHtml(emp.telefone||'')} ${emp.email? ' · '+escHtml(emp.email):''}</div>
+        <div class="muted" style="font-size:11px; letter-spacing:.05em;">FATURA / RECIBO</div>
+        <h1 style="font-size:24px;">#${escHtml(fatura.numero)}</h1>
       </div>
       <div style="text-align:right;">
-        <div class="muted" style="font-size:11px;">FATURA</div>
-        <div style="font-size:22px; font-weight:bold;">Nº ${escHtml(fatura.numero)}</div>
-        <div class="muted">Emissão: ${fmtDate(fatura.dataEmissao)}</div>
-        <div class="muted">Vencimento: ${fmtDate(fatura.vencimento)}</div>
+        <div style="font-size:16px; font-weight:bold;">${escHtml(emp.nome||'Minha Empresa')}</div>
+        <div class="muted">${escHtml(emp.doc||'')}</div>
       </div>
     </div>
-    <h2>Cobrado de</h2>
-    <div>${escHtml(fatura.nomeCliente)}</div>
-    <h2>Serviço prestado</h2>
-    <div>${escHtml(fatura.descricao||'—')}</div>
+
+    <table style="border:none; margin-bottom:18px;"><tr>
+      <td style="border:none; width:50%; vertical-align:top; padding:0 12px 0 0;">
+        <div class="muted" style="font-size:11px; letter-spacing:.05em; margin-bottom:4px;">PRESTADOR</div>
+        <div style="font-weight:bold;">${escHtml(emp.nome||'—')}</div>
+        <div class="muted">CNPJ/CPF: ${escHtml(emp.doc||'—')}</div>
+        <div class="muted">${escHtml(emp.endereco||'—')}</div>
+        <div class="muted">${escHtml(emp.telefone||'')} ${emp.email? ' · '+escHtml(emp.email):''}</div>
+      </td>
+      <td style="border:none; width:50%; vertical-align:top; padding:0 0 0 12px; border-left:1px solid #ddd;">
+        <div class="muted" style="font-size:11px; letter-spacing:.05em; margin-bottom:4px;">TOMADOR</div>
+        <div style="font-weight:bold;">${escHtml(fatura.nomeCliente)}</div>
+      </td>
+    </tr></table>
+
+    <div class="dre-section-title" style="border-top:1px solid #eee; padding-top:10px;">CRONOGRAMA</div>
+    <table style="border:none;"><tr>
+      <td style="border:none; padding:2px 20px 2px 0;">Emissão: <b>${fmtDate(fatura.dataEmissao)}</b></td>
+      <td style="border:none; padding:2px 20px 2px 0;">Vencimento: <b>${fmtDate(fatura.vencimento)}</b></td>
+      <td style="border:none; padding:2px 20px 2px 0;">Competência: <b>${mesComp}/${anoComp}</b></td>
+      <td style="border:none; padding:2px 0;">Status: <b>${statusLabel}</b></td>
+    </tr></table>
+
+    <h2 style="margin-top:20px;">Serviços executados</h2>
+    <table><thead><tr><th style="width:40px;">Item</th><th>Especificação</th><th class="num">Valor</th></tr></thead>
+    <tbody>${itens.map((it,idx)=>`<tr><td>${String(idx+1).padStart(3,'0')}</td><td>${escHtml(it.descricao)}</td><td class="num">${fmtMoney(it.valor)}</td></tr>`).join('')}
+    </tbody></table>
+
+    <div class="totais" style="margin-top:14px; max-width:320px; margin-left:auto;">
+      <div><span>Subtotal geral</span><span>${fmtMoney(fatura.valor)}</span></div>
+      <div><span>Impostos retidos</span><span>${fmtMoney(0)}</span></div>
+      <div class="total"><span>Total a pagar</span><span>${fmtMoney(fatura.valor)}</span></div>
+    </div>
+
     ${nota? `<h2>Nota fiscal vinculada</h2><div>Nº ${escHtml(nota.numero)} — emitida em ${fmtDate(nota.data)} — ${fmtMoney(nota.valor)}</div>` : ''}
-    <h2>Valor cobrado</h2>
-    <div style="font-size:26px; font-weight:bold;">${fmtMoney(fatura.valor)}</div>
+
     ${qrDataUrl? `
     <h2>Pagamento via Pix</h2>
     <div style="display:flex; align-items:center; gap:16px;">
       <img src="${qrDataUrl}" style="width:150px; height:150px;">
       <div class="muted">Chave Pix: ${escHtml(emp.pixChave)}<br>Recebedor: ${escHtml(emp.pixNome||emp.nome)}<br>Escaneie o QR Code com o app do seu banco.</div>
-    </div>` : ''}
+    </div>` : `<div class="hint" style="margin-top:14px;">Cadastre a chave Pix da empresa no Dashboard para o QR Code aparecer aqui.</div>`}
   `;
   imprimirHtml(`Fatura ${fatura.numero}`, corpo);
 }
@@ -1653,16 +1790,152 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
+  const cartaoContaSel = document.getElementById('cartaoConta');
+  if(cartaoContaSel) cartaoContaSel.onchange = ()=>{ cartaoSel = cartaoContaSel.value; estadoEdicao.cartaoLanc=null; render(); };
+  const addCartao = document.getElementById('addCartao');
+  if(addCartao){
+    addCartao.onclick = ()=>{
+      const nome = document.getElementById('ccNome').value.trim();
+      if(!nome){ return; }
+      const dados = {
+        nome,
+        bandeira: document.getElementById('ccBandeira').value.trim(),
+        limite: parseFloat(document.getElementById('ccLimite').value)||0,
+        diaFechamento: parseInt(document.getElementById('ccFechamento').value)||null,
+        diaVencimento: parseInt(document.getElementById('ccVencimento').value)||null
+      };
+      if(estadoEdicao.cartao){
+        const item = state.cartoes.find(c=>c.id===estadoEdicao.cartao);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.cartao = null;
+      } else {
+        const novo = { id: uid(), ...dados };
+        state.cartoes.push(novo);
+        cartaoSel = novo.id;
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-cartao]').forEach(b=> b.onclick = ()=>{ estadoEdicao.cartao=b.dataset.editarCartao; render(); });
+  const cancelarEdicaoCartao = document.getElementById('cancelarEdicaoCartao');
+  if(cancelarEdicaoCartao) cancelarEdicaoCartao.onclick = ()=>{ estadoEdicao.cartao=null; render(); };
+  document.querySelectorAll('[data-del-cartao]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir este cartão e todos os lançamentos dele?')) return;
+    const id = b.dataset.delCartao;
+    state.cartoes = state.cartoes.filter(c=>c.id!==id);
+    state.cartaoLancamentos = state.cartaoLancamentos.filter(l=>l.cartaoId!==id);
+    cartaoSel = null;
+    render(); saveState();
+  });
+
+  const addLancCartao = document.getElementById('addLancCartao');
+  if(addLancCartao){
+    addLancCartao.onclick = ()=>{
+      const descricao = document.getElementById('ccLancDesc').value.trim();
+      const valor = parseFloat(document.getElementById('ccLancValor').value);
+      if(!descricao || !valor || !cartaoSel){ return; }
+      const dados = {
+        data: document.getElementById('ccLancData').value || todayISO(),
+        descricao, valor: Math.abs(valor),
+        categoria: document.getElementById('ccLancCategoria').value
+      };
+      if(estadoEdicao.cartaoLanc){
+        const item = state.cartaoLancamentos.find(l=>l.id===estadoEdicao.cartaoLanc);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.cartaoLanc = null;
+      } else {
+        state.cartaoLancamentos.push({ id: uid(), cartaoId: cartaoSel, fechado:false, ...dados });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-lanc-cartao]').forEach(b=> b.onclick = ()=>{ estadoEdicao.cartaoLanc=b.dataset.editarLancCartao; render(); });
+  const cancelarEdicaoLancCartao = document.getElementById('cancelarEdicaoLancCartao');
+  if(cancelarEdicaoLancCartao) cancelarEdicaoLancCartao.onclick = ()=>{ estadoEdicao.cartaoLanc=null; render(); };
+  document.querySelectorAll('[data-del-lanc-cartao]').forEach(b=> b.onclick = ()=>{
+    state.cartaoLancamentos = state.cartaoLancamentos.filter(l=>l.id!==b.dataset.delLancCartao);
+    render(); saveState();
+  });
+  const fecharFaturaCartao = document.getElementById('fecharFaturaCartao');
+  if(fecharFaturaCartao){
+    fecharFaturaCartao.onclick = ()=>{
+      const contaId = document.getElementById('ccContaPagamento').value;
+      const cartao = state.cartoes.find(c=>c.id===cartaoSel);
+      const abertos = state.cartaoLancamentos.filter(l=>l.cartaoId===cartaoSel && !l.fechado);
+      const total = abertos.reduce((s,l)=> s+l.valor, 0);
+      if(!contaId || total<=0) return;
+      if(!confirm(`Fechar a fatura de ${fmtMoney(total)} e lançar como pagamento na conta selecionada?`)) return;
+      abertos.forEach(l=> l.fechado = true);
+      state.transacoes.push({
+        id: uid(), contaId,
+        data: todayISO(),
+        descricao: 'Pagamento fatura cartão — ' + (cartao? cartao.nome : ''),
+        tipo: 'debito', valor: total, categoria: 'desp_admin'
+      });
+      render(); saveState();
+    };
+  }
+
+  const addEmprestimo = document.getElementById('addEmprestimo');
+  if(addEmprestimo){
+    addEmprestimo.onclick = ()=>{
+      const contraparte = document.getElementById('emContraparte').value.trim();
+      const valor = parseFloat(document.getElementById('emValor').value);
+      const parcelas = parseInt(document.getElementById('emParcelas').value);
+      if(!contraparte || !valor || !parcelas){ alert('Preencha contraparte, valor e número de parcelas.'); return; }
+      const dados = {
+        tipo: document.getElementById('emTipo').value,
+        contraparte, valor: Math.abs(valor), parcelas,
+        data: document.getElementById('emData').value || todayISO(),
+        taxaJuros: document.getElementById('emTaxa').value.trim()
+      };
+      if(estadoEdicao.emprestimo){
+        const item = state.emprestimos.find(e=>e.id===estadoEdicao.emprestimo);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.emprestimo = null;
+      } else {
+        state.emprestimos.push({ id: uid(), ...dados, parcelasPagas:0 });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-emprestimo]').forEach(b=> b.onclick = ()=>{ estadoEdicao.emprestimo=b.dataset.editarEmprestimo; render(); });
+  const cancelarEdicaoEmprestimo = document.getElementById('cancelarEdicaoEmprestimo');
+  if(cancelarEdicaoEmprestimo) cancelarEdicaoEmprestimo.onclick = ()=>{ estadoEdicao.emprestimo=null; render(); };
+  document.querySelectorAll('[data-del-emprestimo]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir este empréstimo?')) return;
+    state.emprestimos = state.emprestimos.filter(e=>e.id!==b.dataset.delEmprestimo);
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-registrar-parcela]').forEach(b=> b.onclick = ()=>{
+    const e = state.emprestimos.find(e=>e.id===b.dataset.registrarParcela);
+    if(!e) return;
+    const sel = document.querySelector(`[data-emprestimo-conta-select="${e.id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
+    const valorParcela = e.valor / e.parcelas;
+    state.transacoes.push({
+      id: uid(), contaId,
+      data: todayISO(),
+      descricao: (e.tipo==='cedido'? 'Recebimento de parcela — ' : 'Pagamento de parcela — ') + e.contraparte,
+      tipo: e.tipo==='cedido' ? 'credito' : 'debito',
+      valor: valorParcela,
+      categoria: 'transferencia'
+    });
+    e.parcelasPagas = (e.parcelasPagas||0) + 1;
+    render(); saveState();
+  });
+
+
   const addFatura = document.getElementById('addFatura');
   if(addFatura){
     addFatura.onclick = ()=>{
       const numero = document.getElementById('ftNumero').value.trim();
       const contatoRef = document.getElementById('ftContato').value;
       const nomeManual = document.getElementById('ftNomeManual').value.trim();
-      const valor = parseFloat(document.getElementById('ftValor').value);
-      const descricao = document.getElementById('ftDescricao').value.trim();
+      const valor = totalItensFatura();
       if(!numero || !valor || (!contatoRef) || (contatoRef==='avulso' && !nomeManual)){
-        alert('Preencha ao menos número, cliente e valor.'); return;
+        alert('Preencha número, cliente, e adicione ao menos um item de serviço.'); return;
       }
       let nomeCliente = nomeManual;
       if(contatoRef!=='avulso'){
@@ -1671,10 +1944,11 @@ function attachHandlers(){
       }
       const dados = {
         numero, contatoRef, nomeCliente,
+        competencia: document.getElementById('ftCompetencia').value || todayISO().slice(0,7),
         dataEmissao: document.getElementById('ftDataEmissao').value || todayISO(),
         vencimento: document.getElementById('ftVencimento').value || todayISO(),
-        valor: Math.abs(valor),
-        descricao,
+        valor,
+        itens: faturaItensTemp.slice(),
         notaFiscalId: document.getElementById('ftNotaFiscal').value || null,
         categoria: document.getElementById('ftCategoria').value
       };
@@ -1708,14 +1982,32 @@ function attachHandlers(){
         });
         state.faturas.push({ id: faturaId, ...dados, contasReceberId: receberId, status:'pendente' });
       }
+      faturaItensTemp = [];
       render(); saveState();
     };
   }
+  const addItemFatura = document.getElementById('addItemFatura');
+  if(addItemFatura){
+    addItemFatura.onclick = ()=>{
+      const descricao = document.getElementById('ftItemDesc').value.trim();
+      const valor = parseFloat(document.getElementById('ftItemValor').value);
+      if(!descricao || !valor){ return; }
+      faturaItensTemp.push({ descricao, valor: Math.abs(valor) });
+      render();
+    };
+  }
+  document.querySelectorAll('[data-del-item-fatura]').forEach(b=> b.onclick = ()=>{
+    faturaItensTemp.splice(parseInt(b.dataset.delItemFatura), 1);
+    render();
+  });
   document.querySelectorAll('[data-editar-fatura]').forEach(b=> b.onclick = ()=>{
-    estadoEdicao.fatura = b.dataset.editarFatura; render();
+    estadoEdicao.fatura = b.dataset.editarFatura;
+    const f = state.faturas.find(f=>f.id===estadoEdicao.fatura);
+    faturaItensTemp = f && f.itens ? f.itens.slice() : [];
+    render();
   });
   const cancelarEdicaoFatura = document.getElementById('cancelarEdicaoFatura');
-  if(cancelarEdicaoFatura) cancelarEdicaoFatura.onclick = ()=>{ estadoEdicao.fatura=null; render(); };
+  if(cancelarEdicaoFatura) cancelarEdicaoFatura.onclick = ()=>{ estadoEdicao.fatura=null; faturaItensTemp=[]; render(); };
   document.querySelectorAll('[data-ver-fatura]').forEach(b=> b.onclick = ()=>{
     const f = state.faturas.find(f=>f.id===b.dataset.verFatura);
     if(f) imprimirFatura(f);
@@ -1723,6 +2015,54 @@ function attachHandlers(){
   document.querySelectorAll('[data-del-fatura]').forEach(b=> b.onclick = ()=>{
     if(!confirm('Excluir esta fatura? O lançamento em Contas a receber criado por ela não será apagado — se quiser removê-lo também, exclua manualmente em "Contas a pagar/receber".')) return;
     state.faturas = state.faturas.filter(f=>f.id!==b.dataset.delFatura);
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-pagar-fatura]').forEach(b=> b.onclick = ()=>{
+    const f = state.faturas.find(f=>f.id===b.dataset.pagarFatura);
+    if(!f || !f.contasReceberId) return;
+    const cr = state.contasReceber.find(c=>c.id===f.contasReceberId);
+    if(!cr) return;
+    const sel = document.querySelector(`[data-fatura-conta-select="${f.id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
+    cr.status = 'pago';
+    cr.contaId = contaId;
+    cr.dataPagamento = todayISO();
+    const novaTxId = uid();
+    cr.transacaoId = novaTxId;
+    state.transacoes.push({
+      id: novaTxId, contaId,
+      data: todayISO(),
+      descricao: 'Recebimento: ' + cr.descricao,
+      tipo: 'credito',
+      valor: cr.valor,
+      categoria: cr.categoria
+    });
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-estornar-fatura]').forEach(b=> b.onclick = ()=>{
+    const f = state.faturas.find(f=>f.id===b.dataset.estornarFatura);
+    if(!f || !f.contasReceberId) return;
+    const cr = state.contasReceber.find(c=>c.id===f.contasReceberId);
+    if(!cr) return;
+    if(!confirm('Estornar o pagamento desta fatura? Isso cria um lançamento de estorno no extrato (sem apagar o histórico) e marca a fatura como pendente novamente.')) return;
+    const original = cr.transacaoId ? state.transacoes.find(t=>t.id===cr.transacaoId) : null;
+    if(original && !original.estornado){
+      original.estornado = true;
+      state.transacoes.push({
+        id: uid(), contaId: original.contaId,
+        data: todayISO(),
+        descricao: 'Estorno: ' + original.descricao,
+        tipo: original.tipo==='credito' ? 'debito' : 'credito',
+        valor: original.valor,
+        categoria: original.categoria,
+        estornoDe: original.id
+      });
+    }
+    cr.status = 'pendente';
+    cr.contaId = null;
+    cr.dataPagamento = null;
+    cr.transacaoId = null;
     render(); saveState();
   });
 
@@ -2040,6 +2380,18 @@ function attachHandlers(){
   if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; render(); };
   const toggleCorrecaoSaldo = document.getElementById('toggleCorrecaoSaldo');
   if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; render(); };
+  const excluirExtratoCompleto = document.getElementById('excluirExtratoCompleto');
+  if(excluirExtratoCompleto){
+    excluirExtratoCompleto.onclick = ()=>{
+      const conta = state.contas.find(c=>c.id===extratoContaSel);
+      const qtd = state.transacoes.filter(t=>t.contaId===extratoContaSel).length;
+      if(qtd===0){ alert('Esta conta já não tem nenhum lançamento.'); return; }
+      if(!confirm(`Isso vai excluir TODOS os ${qtd} lançamentos da conta "${conta? conta.nome:''}". Essa ação não pode ser desfeita. Deseja continuar?`)) return;
+      if(!confirm('Tem certeza mesmo? Todos os lançamentos dessa conta serão apagados permanentemente.')) return;
+      state.transacoes = state.transacoes.filter(t=>t.contaId!==extratoContaSel);
+      render(); saveState();
+    };
+  }
   const confirmarCorrecaoSaldo = document.getElementById('confirmarCorrecaoSaldo');
   if(confirmarCorrecaoSaldo){
     confirmarCorrecaoSaldo.onclick = ()=>{
@@ -2191,43 +2543,6 @@ function attachHandlers(){
   });
   const fecharNotaCompleta = document.getElementById('fecharNotaCompleta');
   if(fecharNotaCompleta) fecharNotaCompleta.onclick = ()=>{ notaVisualizada=null; render(); };
-
-  const xmlNotaInput = document.getElementById('xmlNotaInput');
-  if(xmlNotaInput){
-    xmlNotaInput.onchange = ()=>{
-      const file = xmlNotaInput.files[0];
-      if(!file) return;
-      const reader = new FileReader();
-      reader.onload = (e)=>{
-        xmlNotaPreview = parseXmlNota(e.target.result);
-        if(!xmlNotaPreview) alert('Não foi possível ler este arquivo como XML de nota fiscal.');
-        render();
-      };
-      reader.readAsText(file);
-    };
-  }
-  const confirmarImportXml = document.getElementById('confirmarImportXml');
-  if(confirmarImportXml){
-    confirmarImportXml.onclick = ()=>{
-      const numero = document.getElementById('xmlNumero').value.trim();
-      const parte = document.getElementById('xmlParte').value.trim();
-      const valor = parseFloat(document.getElementById('xmlValor').value);
-      if(!numero || !parte || !valor){ alert('Preencha ao menos número, cliente/fornecedor e valor.'); return; }
-      state.notas.push({
-        id: uid(), numero, parte,
-        tipo: document.getElementById('xmlTipo').value,
-        data: document.getElementById('xmlData').value || todayISO(),
-        valor: Math.abs(valor),
-        status: 'pendente',
-        obs: '',
-        xmlRaw: xmlNotaPreview.xmlRaw
-      });
-      xmlNotaPreview = null;
-      render(); saveState();
-    };
-  }
-  const cancelarImportXml = document.getElementById('cancelarImportXml');
-  if(cancelarImportXml) cancelarImportXml.onclick = ()=>{ xmlNotaPreview=null; render(); };
 
   document.querySelectorAll('[data-add-conta]').forEach(btn=> btn.onclick = async ()=>{
     const tipo = btn.dataset.addConta;
