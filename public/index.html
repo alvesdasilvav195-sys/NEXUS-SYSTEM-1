@@ -192,13 +192,26 @@ const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Ag
 
 document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
 
-const CATEGORIAS = [
+const GRUPOS_DRE_OPCOES = [
+  {id:'receita', label:'Receita de serviços (receita bruta)'},
+  {id:'deducao', label:'Dedução / imposto sobre serviços'},
+  {id:'custo', label:'Custo dos serviços prestados'},
+  {id:'pessoal', label:'Despesa operacional — Pessoal'},
+  {id:'admin', label:'Despesa operacional — Administrativa'},
+  {id:'comercial', label:'Despesa operacional — Comercial / marketing'},
+  {id:'fin_receita', label:'Receita financeira'},
+  {id:'fin_despesa', label:'Despesa financeira'},
+  {id:'outras_receitas', label:'Outra receita'},
+  {id:'outras_despesas', label:'Outra despesa'},
+  {id:'neutro', label:'Não entra na DRE (ex: transferência, ajuste)'}
+];
+const CATEGORIAS_PADRAO = [
   {id:'receita_servicos', label:'Receita de serviços', grupo:'receita'},
   {id:'deducoes', label:'Impostos sobre serviços (ISS, PIS, COFINS...)', grupo:'deducao'},
   {id:'custo_servicos', label:'Custo dos serviços prestados', grupo:'custo'},
-  {id:'desp_pessoal', label:'Despesas com pessoal', grupo:'op'},
-  {id:'desp_admin', label:'Despesas administrativas', grupo:'op'},
-  {id:'desp_comercial', label:'Despesas comerciais / marketing', grupo:'op'},
+  {id:'desp_pessoal', label:'Despesas com pessoal', grupo:'pessoal'},
+  {id:'desp_admin', label:'Despesas administrativas', grupo:'admin'},
+  {id:'desp_comercial', label:'Despesas comerciais / marketing', grupo:'comercial'},
   {id:'receita_financeira', label:'Receitas financeiras', grupo:'fin_receita'},
   {id:'desp_financeira', label:'Despesas financeiras (juros, tarifas)', grupo:'fin_despesa'},
   {id:'outras_receitas', label:'Outras receitas', grupo:'outras_receitas'},
@@ -206,7 +219,9 @@ const CATEGORIAS = [
   {id:'transferencia', label:'Transferência entre contas (não entra na DRE)', grupo:'neutro'},
   {id:'ajuste_saldo', label:'Correção de saldo (não entra na DRE)', grupo:'neutro'},
 ];
-const catLabel = id => (CATEGORIAS.find(c=>c.id===id)||{}).label || id;
+function categoriasAtuais(){ return (state.categoriasDre && state.categoriasDre.length) ? state.categoriasDre : CATEGORIAS_PADRAO; }
+const catLabel = id => (categoriasAtuais().find(c=>c.id===id)||{}).label || id;
+
 
 /* ---------------- Pix (BR Code) ---------------- */
 function pixEMV(id, valor){ return id + String(valor.length).padStart(2,'0') + valor; }
@@ -306,7 +321,9 @@ let state = {
   proLabore: [],
   cartoes: [],
   cartaoLancamentos: [],
-  emprestimos: []
+  emprestimos: [],
+  categoriasDre: [],
+  configNotificacoes: { ativo:false, email:'', diasAntecedencia:3 }
 };
 
 function planoPadrao(){
@@ -339,6 +356,7 @@ async function loadState(){
   if(!state.contasPagar) state.contasPagar = [];
   if(!state.contasReceber) state.contasReceber = [];
   if(!state.fornecedores) state.fornecedores = [];
+  state.fornecedores.forEach(f=>{ if(!f.tipo) f.tipo = 'ambos'; });
   if(!state.agenda) state.agenda = [];
   if(!state.crm) state.crm = [];
   if(!state.faturas) state.faturas = [];
@@ -346,6 +364,8 @@ async function loadState(){
   if(!state.cartoes) state.cartoes = [];
   if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
   if(!state.emprestimos) state.emprestimos = [];
+  if(!state.categoriasDre || state.categoriasDre.length===0) state.categoriasDre = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
+  if(!state.configNotificacoes) state.configNotificacoes = { ativo:false, email:'', diasAntecedencia:3 };
 }
 
 let saveTimer=null;
@@ -395,30 +415,31 @@ function somaCategoria(txs, catIds){
   return txs.filter(t=>catIds.includes(t.categoria))
     .reduce((s,t)=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
 }
+function idsPorGrupo(grupo){ return categoriasAtuais().filter(c=>c.grupo===grupo).map(c=>c.id); }
 function calcularDRE(mes, ano){
   const txs = transacoesDoMes(mes, ano);
-  const receitaBruta = Math.abs(somaCategoria(txs,['receita_servicos']));
-  const deducoes = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['deducoes']));
+  const receitaBruta = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'), idsPorGrupo('receita')));
+  const deducoes = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('deducao')));
   const receitaLiquida = receitaBruta - deducoes;
-  const custoServicos = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['custo_servicos']));
+  const custoServicos = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('custo')));
   const lucroBruto = receitaLiquida - custoServicos;
-  const despPessoal = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_pessoal']));
-  const despAdmin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_admin']));
-  const despComercial = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_comercial']));
+  const despPessoal = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('pessoal')));
+  const despAdmin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('admin')));
+  const despComercial = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('comercial')));
   const despOperacionais = despPessoal+despAdmin+despComercial;
   const resultadoOperacional = lucroBruto - despOperacionais;
-  const receitaFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'),['receita_financeira']));
-  const despFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['desp_financeira']));
+  const receitaFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'), idsPorGrupo('fin_receita')));
+  const despFin = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('fin_despesa')));
   const resultadoFinanceiro = receitaFin - despFin;
-  const outrasReceitas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'),['outras_receitas']));
-  const outrasDespesas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'),['outras_despesas']));
+  const outrasReceitas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='credito'), idsPorGrupo('outras_receitas')));
+  const outrasDespesas = Math.abs(somaCategoria(txs.filter(t=>t.tipo==='debito'), idsPorGrupo('outras_despesas')));
   const resultadoLiquido = resultadoOperacional + resultadoFinanceiro + outrasReceitas - outrasDespesas;
   return {receitaBruta,deducoes,receitaLiquida,custoServicos,lucroBruto,despPessoal,despAdmin,despComercial,despOperacionais,resultadoOperacional,receitaFin,despFin,resultadoFinanceiro,outrasReceitas,outrasDespesas,resultadoLiquido};
 }
 function totalReceitasDespesasGeral(){
   let receitas=0, despesas=0;
   state.transacoes.forEach(t=>{
-    const cat = CATEGORIAS.find(c=>c.id===t.categoria);
+    const cat = categoriasAtuais().find(c=>c.id===t.categoria);
     if(!cat || cat.grupo==='neutro') return;
     if(t.tipo==='credito') receitas += t.valor; else despesas += t.valor;
   });
@@ -439,6 +460,8 @@ const TITLES = {
   balancete:['Balancete','Saldos das contas contábeis (patrimonial e resultado)'],
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
   configEmpresa:['Dados da empresa','Usados nas faturas e no pró-labore'],
+  categoriasDre:['Categorias da DRE','Crie novas categorias ou ajuste as atuais'],
+  notificacoes:['Avisos por e-mail','Seja avisado de contas a pagar e a receber'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
   cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
@@ -469,6 +492,8 @@ const NAV_ESTRUTURA = [
   ]},
   {tipo:'grupo', id:'configuracoes', label:'Configurações', itens:[
     {tab:'configEmpresa', label:'Dados da empresa'},
+    {tab:'categoriasDre', label:'Categorias da DRE'},
+    {tab:'notificacoes', label:'Avisos por e-mail'},
     {tab:'acesso', label:'Acesso e senha'},
     {tab:'backup', label:'Backup e atualização'}
   ]}
@@ -532,6 +557,8 @@ function render(){
   if(activeTab==='balancete') view.innerHTML = renderBalancete();
   if(activeTab==='acesso') view.innerHTML = renderAcesso();
   if(activeTab==='configEmpresa') view.innerHTML = renderConfigEmpresa();
+  if(activeTab==='categoriasDre') view.innerHTML = renderCategoriasDre();
+  if(activeTab==='notificacoes') view.innerHTML = renderNotificacoes();
   if(activeTab==='backup') view.innerHTML = renderBackup();
   attachHandlers();
 }
@@ -591,6 +618,65 @@ function renderConfigEmpresa(){
       <div class="field"><label>Nome do recebedor</label><input id="empresaPixNomeInput" value="${escAttr(state.empresa.pixNome||'')}" placeholder="Nome que aparece no Pix"></div>
       <div class="field"><label>Cidade</label><input id="empresaPixCidadeInput" value="${escAttr(state.empresa.pixCidade||'')}" placeholder="Ex: Sao Paulo"></div>
       <button class="btn btn-primary" id="salvarEmpresa">Salvar</button>
+    </div>
+  </div>`;
+}
+function renderCategoriasDre(){
+  const edit = estadoEdicao.categoria ? state.categoriasDre.find(c=>c.id===estadoEdicao.categoria) : null;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar categoria' : 'Nova categoria'}</h2></div>
+    <div class="hint" style="margin-bottom:12px;">O "impacto na DRE" define em qual linha da Demonstração de Resultado essa categoria entra automaticamente, sempre que for usada em algum lançamento.</div>
+    <div class="form-grid" style="grid-template-columns:1.6fr 1.6fr auto;">
+      <div class="field"><label>Nome da categoria</label><input id="catNome" placeholder="Ex: Comissões de vendedores" value="${edit? escAttr(edit.label):''}"></div>
+      <div class="field"><label>Impacto na DRE</label><select id="catGrupo">${GRUPOS_DRE_OPCOES.map(g=>`<option value="${g.id}" ${edit&&edit.grupo===g.id?'selected':''}>${g.label}</option>`).join('')}</select></div>
+      <button class="btn btn-primary" id="addCategoria">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoCategoria" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Categorias cadastradas</h2><span class="badge-count">${state.categoriasDre.length}</span></div>
+    <table><thead><tr><th>Categoria</th><th>Impacto na DRE</th><th></th></tr></thead>
+    <tbody>${state.categoriasDre.map(c=>`
+      <tr>
+        <td>${escHtml(c.label)}</td>
+        <td class="muted">${escHtml((GRUPOS_DRE_OPCOES.find(g=>g.id===c.grupo)||{}).label || c.grupo)}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn-ghost" data-editar-categoria="${c.id}">Editar</button>
+          <button class="btn-danger-ghost" data-del-categoria="${c.id}">Excluir</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table>
+    <div class="hint" style="margin-top:10px;">Evite excluir as categorias "Transferência entre contas" e "Correção de saldo" — algumas funções automáticas do sistema usam elas.</div>
+  </div>`;
+}
+function renderNotificacoes(){
+  const cfg = state.configNotificacoes;
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Avisos por e-mail</h2></div>
+    <div class="hint" style="margin-bottom:12px;">Receba um e-mail diário resumindo as contas a pagar e a receber que estão perto do vencimento.</div>
+    <div class="form-grid" style="grid-template-columns:auto 1.4fr 1fr;">
+      <div class="field"><label>Ativado</label><select id="notifAtivo">
+        <option value="nao" ${!cfg.ativo?'selected':''}>Desativado</option>
+        <option value="sim" ${cfg.ativo?'selected':''}>Ativado</option>
+      </select></div>
+      <div class="field"><label>E-mail que vai receber os avisos</label><input type="email" id="notifEmail" placeholder="seuemail@exemplo.com" value="${escAttr(cfg.email||'')}"></div>
+      <div class="field"><label>Avisar com quantos dias de antecedência</label><input type="number" min="0" id="notifDias" value="${cfg.diasAntecedencia}"></div>
+    </div>
+    <button class="btn btn-primary" id="salvarNotificacoes" style="margin-top:10px;">Salvar</button>
+    <button class="btn" id="testarNotificacao" style="margin-top:10px; margin-left:8px;">Enviar e-mail de teste agora</button>
+    <div id="notifMsg" style="font-size:12px; margin-top:10px;"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Como isso funciona</h2></div>
+    <div class="hint" style="line-height:1.6;">
+      O envio de e-mail depende de um serviço configurado no servidor (Gmail com senha de app, por exemplo) — isso é feito uma vez, direto no Render, com variáveis de ambiente (<code>EMAIL_USER</code>, <code>EMAIL_APP_PASSWORD</code>).
+      <br><br>
+      Como o plano gratuito do Render "dorme" quando ninguém acessa, o envio automático diário depende de algo externo "acordar" o sistema uma vez por dia — recomendo usar o site <b>cron-job.org</b> (gratuito) apontando para:
+      <br><code>${window.location.origin}/api/notificacoes/verificar?token=SEU_TOKEN</code>
+      <br><br>
+      Se você ainda não configurou isso no servidor, me avise que te passo o passo a passo completo.
     </div>
   </div>`;
 }
@@ -676,7 +762,7 @@ function renderExtrato(){
       <div class="field"><label>Descrição</label><input id="txDesc" placeholder="Ex: Pagamento cliente X" value="${edit? escAttr(edit.descricao):''}"></div>
       <div class="field"><label>Tipo</label><select id="txTipo"><option value="credito" ${edit&&edit.tipo==='credito'?'selected':''}>Entrada</option><option value="debito" ${edit&&edit.tipo==='debito'?'selected':''}>Saída</option></select></div>
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="txValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit&&edit.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit&&edit.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" id="addTx">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoTx" style="margin-top:6px;">Cancelar edição</button>` : ''}
@@ -723,7 +809,7 @@ function renderOfxPreview(){
         <td class="muted">${fmtDate(p.data)}</td>
         <td>${escHtml(p.descricao)}</td>
         <td class="num ${p.tipo==='credito'?'pos':'neg'}">${p.tipo==='credito'?'+':'-'} ${fmtMoney(p.valor)}</td>
-        <td><select data-ofx-cat="${i}">${CATEGORIAS.map(c=>`<option value="${c.id}" ${p.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></td>
+        <td><select data-ofx-cat="${i}">${categoriasAtuais().map(c=>`<option value="${c.id}" ${p.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></td>
       </tr>`).join('')}
     </tbody></table>
     <div style="margin-top:10px; display:flex; gap:8px;">
@@ -805,7 +891,7 @@ function renderBlocoCartoes(){
       <div class="field"><label>Data</label><input type="date" id="ccLancData" value="${editLanc? editLanc.data : todayISO()}"></div>
       <div class="field"><label>Descrição</label><input id="ccLancDesc" placeholder="Ex: Assinatura software" value="${editLanc? escAttr(editLanc.descricao):''}"></div>
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="ccLancValor" placeholder="0,00" value="${editLanc? editLanc.valor:''}"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="ccLancCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${editLanc? (editLanc.categoria===c.id?'selected':'') : (c.id==='desp_admin'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="ccLancCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${editLanc? (editLanc.categoria===c.id?'selected':'') : (c.id==='desp_admin'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" id="addLancCartao">${editLanc? 'Salvar' : 'Adicionar'}</button>
     </div>
     ${editLanc? `<button class="btn-ghost" id="cancelarEdicaoLancCartao" style="margin-top:6px;">Cancelar edição</button>` : ''}
@@ -923,11 +1009,18 @@ function renderBlocoContas(tipo){
     <div class="card-head"><h2>${edit? `Editar conta a ${label}` : `Nova conta a ${label}`}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.4fr 1.1fr 0.9fr 1fr 1.3fr auto;">
       <div class="field"><label>Descrição</label><input id="${idPrefix}Desc" placeholder="Ex: ${tipo==='pagar'?'Aluguel do escritório':'Serviço prestado ao cliente X'}" value="${edit? escAttr(edit.descricao):''}"></div>
-      <div class="field"><label>${pessoaLabel}</label><input id="${idPrefix}Parte" placeholder="Nome" value="${edit? escAttr(edit.parte||''):''}"></div>
+      <div class="field"><label>${pessoaLabel}</label><select id="${idPrefix}Parte">
+        <option value="">-- selecione --</option>
+        ${listaContatosCobranca().map(c=>`<option value="${c.ref}" ${edit&&edit.parteRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+        <option value="avulso" ${edit&&(!edit.parteRef||edit.parteRef==='avulso')?'selected':''}>Outro (digitar nome)</option>
+      </select></div>
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="${idPrefix}Valor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <div class="field"><label>Vencimento</label><input type="date" id="${idPrefix}Venc" value="${edit? edit.vencimento : todayISO()}"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':'')}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" data-add-conta="${tipo}">${edit? 'Salvar' : 'Adicionar'}</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Nome (se "Outro")</label><input id="${idPrefix}ParteManual" placeholder="Nome de quem não está cadastrado" value="${edit&&(!edit.parteRef||edit.parteRef==='avulso')? escAttr(edit.parte||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" data-cancelar-edicao-conta="${tipo}" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
@@ -981,33 +1074,42 @@ function renderFornecedores(){
   const edit = estadoEdicao.fornecedor ? state.fornecedores.find(f=>f.id===estadoEdicao.fornecedor) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>${edit? 'Editar cliente' : 'Novo cliente'}</h2></div>
-    <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr 1fr auto;">
-      <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do cliente" value="${edit? escAttr(edit.nome):''}"></div>
+    <div class="card-head"><h2>${edit? 'Editar cadastro' : 'Novo cadastro'}</h2></div>
+    <div class="hint" style="margin-bottom:12px;">Este é o cadastro único de pessoas e empresas do sistema — o mesmo contato pode ser selecionado depois em Notas fiscais, Contas a pagar/receber e Faturas, sem precisar digitar o nome de novo.</div>
+    <div class="form-grid" style="grid-template-columns:1.3fr 0.8fr 1fr 1fr auto;">
+      <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do contato" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>Tipo</label><select id="fnTipo">
+        <option value="cliente" ${edit&&edit.tipo==='cliente'?'selected':''}>Cliente</option>
+        <option value="fornecedor" ${edit&&edit.tipo==='fornecedor'?'selected':''}>Fornecedor</option>
+        <option value="ambos" ${!edit||edit.tipo==='ambos'?'selected':''}>Ambos</option>
+      </select></div>
       <div class="field"><label>CNPJ / CPF</label><input id="fnDoc" placeholder="00.000.000/0000-00" value="${edit? escAttr(edit.doc||''):''}"></div>
       <div class="field"><label>Telefone</label><input id="fnTelefone" placeholder="(00) 00000-0000" value="${edit? escAttr(edit.telefone||''):''}"></div>
-      <div class="field"><label>E-mail</label><input type="email" id="fnEmail" placeholder="contato@cliente.com" value="${edit? escAttr(edit.email||''):''}"></div>
       <button class="btn btn-primary" id="addFornecedor">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
-    <div class="form-grid" style="grid-template-columns:1fr 1fr 2fr; margin-top:2px;">
-      <div class="field"><label>Categoria / serviço contratado</label><input id="fnCategoria" placeholder="Ex: Consultoria, Manutenção..." value="${edit? escAttr(edit.categoria||''):''}"></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
+      <div class="field"><label>E-mail</label><input type="email" id="fnEmail" placeholder="contato@email.com" value="${edit? escAttr(edit.email||''):''}"></div>
+      <div class="field"><label>Categoria / serviço</label><input id="fnCategoria" placeholder="Ex: Consultoria, Manutenção..." value="${edit? escAttr(edit.categoria||''):''}"></div>
       <div class="field"><label>Cidade / UF</label><input id="fnEndereco" placeholder="Ex: São Paulo/SP" value="${edit? escAttr(edit.endereco||''):''}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
       <div class="field"><label>Observações</label><input id="fnObs" placeholder="Condições, contato responsável..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoFornecedor" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Clientes cadastrados</h2>
+      <h2>Cadastros</h2>
       <input id="fornecedorBusca" placeholder="Buscar por nome ou categoria..." style="width:240px;" value="${escAttr(fornecedorBusca)}">
     </div>
-    ${lista.length===0? '<div class="empty">Nenhum cliente cadastrado ainda.</div>' : `
+    ${lista.length===0? '<div class="empty">Nenhum cadastro ainda.</div>' : `
     <div style="display:flex; flex-direction:column; gap:10px;">
     ${lista.map(f=>`
       <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
           <div style="display:flex; align-items:center; gap:10px;">
             <span style="font-weight:500; font-size:14.5px;">${escHtml(f.nome)}</span>
+            <span class="pill ${f.tipo==='cliente'?'green':f.tipo==='fornecedor'?'amber':'gray'}">${f.tipo==='cliente'?'Cliente':f.tipo==='fornecedor'?'Fornecedor':'Cliente e fornecedor'}</span>
             ${f.categoria? `<span class="pill gray">${escHtml(f.categoria)}</span>` : ''}
           </div>
           <div>
@@ -1038,7 +1140,8 @@ function renderFornecedores(){
 const NOTA_TIPOS = {
   emitida: {label:'Emitida (venda)', pill:'green'},
   recebida: {label:'Recebida (compra)', pill:'gray'},
-  nota_comissao: {label:'Nota de comissão', pill:'amber'}
+  nota_comissao: {label:'Nota de comissão', pill:'amber'},
+  nota_servico: {label:'Nota de Prestação de Serviço', pill:'green'}
 };
 function statusNotaInfo(status){
   if(status==='paga') return {label:'Paga', pill:'green'};
@@ -1058,8 +1161,13 @@ function renderNotas(){
         <option value="emitida" ${edit&&edit.tipo==='emitida'?'selected':''}>Emitida (venda)</option>
         <option value="recebida" ${edit&&edit.tipo==='recebida'?'selected':''}>Recebida (compra)</option>
         <option value="nota_comissao" ${edit&&edit.tipo==='nota_comissao'?'selected':''}>Nota de comissão</option>
+        <option value="nota_servico" ${edit&&edit.tipo==='nota_servico'?'selected':''}>Nota de Prestação de Serviço</option>
       </select></div>
-      <div class="field"><label>Cliente / Fornecedor</label><input id="nfParte" placeholder="Nome" value="${edit? escAttr(edit.parte):''}"></div>
+      <div class="field"><label>Cliente / Fornecedor</label><select id="nfParte">
+        <option value="">-- selecione --</option>
+        ${listaContatosCobranca().map(c=>`<option value="${c.ref}" ${edit&&edit.parteRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+        <option value="avulso" ${edit&&(!edit.parteRef||edit.parteRef==='avulso')?'selected':''}>Outro (digitar nome)</option>
+      </select></div>
       <div class="field"><label>Data</label><input type="date" id="nfData" value="${edit? edit.data : todayISO()}"></div>
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="nfValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <div class="field"><label>Status</label><select id="nfStatus">
@@ -1069,7 +1177,8 @@ function renderNotas(){
       </select></div>
       <button class="btn btn-primary" id="addNota">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
-    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+    <div class="form-grid" style="grid-template-columns:1fr 2fr; margin-top:2px;">
+      <div class="field"><label>Nome (se "Outro")</label><input id="nfParteManual" placeholder="Nome de quem não está cadastrado" value="${edit&&(!edit.parteRef||edit.parteRef==='avulso')? escAttr(edit.parte||''):''}"></div>
       <div class="field"><label>Observações</label><input id="nfObs" placeholder="Detalhes sobre esta nota..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
@@ -1077,7 +1186,7 @@ function renderNotas(){
   <div class="card">
     <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
     ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
-    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Observações</th><th></th></tr></thead>
+    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Lançamento</th><th>Observações</th><th></th></tr></thead>
     <tbody>${notas.map(n=>{
       const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
       const st = statusNotaInfo(n.status);
@@ -1088,6 +1197,11 @@ function renderNotas(){
         <td class="muted">${fmtDate(n.data)}</td>
         <td class="num">${fmtMoney(n.valor)}</td>
         <td><span class="pill ${st.pill}">${st.label}</span></td>
+        <td style="white-space:nowrap;">
+          ${n.lancamentoTipo==='receber'? `<span class="pill green">Em Contas a receber</span>`
+          : n.lancamentoTipo==='pagar'? `<span class="pill red">Em Contas a pagar</span>`
+          : `<button class="btn-ghost" data-nota-lancar="${n.id}:receber">Lançar a receber</button> <button class="btn-ghost" data-nota-lancar="${n.id}:pagar">Lançar a pagar</button>`}
+        </td>
         <td class="muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
         <td style="white-space:nowrap;">
           <button class="btn-ghost" data-ver-nota="${n.id}">Ver nota completa</button>
@@ -1098,7 +1212,7 @@ function renderNotas(){
       </tr>`;
     }).join('')}
     </tbody></table>`}
-    <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Use esta aba para controlar a emissão e o status das notas fiscais.</div>
+    <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Ao lançar uma nota em Contas a pagar/receber, ela entra automaticamente lá com o mesmo valor; se você excluir a nota depois, o lançamento correspondente é removido também.</div>
   </div>
   ${notaVisualizada? renderNotaCompleta() : ''}`;
 }
@@ -1562,7 +1676,7 @@ function renderFaturas(){
         <option value="">-- nenhuma --</option>
         ${state.notas.map(n=>`<option value="${n.id}" ${edit&&edit.notaFiscalId===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
       </select></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${CATEGORIAS.map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
     </div>
 
     <div class="dre-section-title">Itens / serviços cobrados nesta fatura</div>
@@ -2311,6 +2425,7 @@ function attachHandlers(){
       if(!nome){ document.getElementById('fnNome').focus(); return; }
       const dados = {
         nome,
+        tipo: document.getElementById('fnTipo').value,
         doc: document.getElementById('fnDoc').value.trim(),
         telefone: document.getElementById('fnTelefone').value.trim(),
         email: document.getElementById('fnEmail').value.trim(),
@@ -2503,11 +2618,19 @@ function attachHandlers(){
   if(addNota){
     addNota.onclick = async ()=>{
       const numero = document.getElementById('nfNumero').value.trim();
-      const parte = document.getElementById('nfParte').value.trim();
+      const parteRef = document.getElementById('nfParte').value;
+      const parteManual = document.getElementById('nfParteManual').value.trim();
       const valor = parseFloat(document.getElementById('nfValor').value);
-      if(!numero || !parte || !valor){ return; }
+      if(!numero || !valor || !parteRef || (parteRef==='avulso' && !parteManual)){
+        alert('Preencha número, valor e o contato (ou digite o nome em "Outro").'); return;
+      }
+      let parte = parteManual;
+      if(parteRef!=='avulso'){
+        const c = listaContatosCobranca().find(c=>c.ref===parteRef);
+        parte = c ? c.nome : parteManual;
+      }
       const dados = {
-        numero, parte,
+        numero, parte, parteRef,
         tipo: document.getElementById('nfTipo').value,
         data: document.getElementById('nfData').value || todayISO(),
         valor: Math.abs(valor),
@@ -2534,7 +2657,43 @@ function attachHandlers(){
     if(n){ n.status = n.status==='paga' ? 'pendente' : 'paga'; render(); saveState(); }
   });
   document.querySelectorAll('[data-del-nota]').forEach(b=> b.onclick = async ()=>{
+    const n = state.notas.find(n=>n.id===b.dataset.delNota);
+    let msg = 'Excluir esta nota fiscal?';
+    if(n && n.lancamentoId){
+      const lista = n.lancamentoTipo==='receber' ? state.contasReceber : state.contasPagar;
+      const item = lista.find(i=>i.id===n.lancamentoId);
+      if(item && item.status==='pago'){
+        msg = 'Esta nota já foi lançada e paga em Contas a '+(n.lancamentoTipo==='receber'?'receber':'pagar')+'. Excluir a nota vai remover esse lançamento, mas o dinheiro que já entrou/saiu no extrato bancário permanece lá — se precisar, desfaça esse pagamento manualmente antes (estornando) para manter tudo coerente. Deseja continuar mesmo assim?';
+      } else {
+        msg = 'Excluir esta nota fiscal? O lançamento correspondente em Contas a '+(n.lancamentoTipo==='receber'?'receber':'pagar')+' também será removido.';
+      }
+    }
+    if(!confirm(msg)) return;
+    if(n && n.lancamentoId){
+      if(n.lancamentoTipo==='receber') state.contasReceber = state.contasReceber.filter(i=>i.id!==n.lancamentoId);
+      else state.contasPagar = state.contasPagar.filter(i=>i.id!==n.lancamentoId);
+    }
     state.notas = state.notas.filter(n=>n.id!==b.dataset.delNota);
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-nota-lancar]').forEach(b=> b.onclick = ()=>{
+    const [notaId, tipo] = b.dataset.notaLancar.split(':');
+    const n = state.notas.find(n=>n.id===notaId);
+    if(!n || n.lancamentoId) return;
+    const lancId = uid();
+    const item = {
+      id: lancId,
+      descricao: 'Nota fiscal nº '+n.numero+' — '+n.parte,
+      parte: n.parte,
+      valor: n.valor,
+      vencimento: n.data,
+      categoria: tipo==='receber' ? 'receita_servicos' : 'desp_admin',
+      status: 'pendente'
+    };
+    if(tipo==='receber') state.contasReceber.push(item);
+    else state.contasPagar.push(item);
+    n.lancamentoId = lancId;
+    n.lancamentoTipo = tipo;
     render(); saveState();
   });
   document.querySelectorAll('[data-ver-nota]').forEach(b=> b.onclick = ()=>{
@@ -2549,10 +2708,20 @@ function attachHandlers(){
     const p = tipo==='pagar'? 'pg' : 'rc';
     const desc = document.getElementById(p+'Desc').value.trim();
     const valor = parseFloat(document.getElementById(p+'Valor').value);
-    if(!desc || !valor){ return; }
+    const parteRef = document.getElementById(p+'Parte').value;
+    const parteManual = document.getElementById(p+'ParteManual').value.trim();
+    if(!desc || !valor || !parteRef || (parteRef==='avulso' && !parteManual)){
+      alert('Preencha descrição, valor e o contato (ou digite o nome em "Outro").'); return;
+    }
+    let parteNome = parteManual;
+    if(parteRef!=='avulso'){
+      const c = listaContatosCobranca().find(c=>c.ref===parteRef);
+      parteNome = c ? c.nome : parteManual;
+    }
     const dados = {
       descricao: desc,
-      parte: document.getElementById(p+'Parte').value.trim(),
+      parte: parteNome,
+      parteRef,
       valor: Math.abs(valor),
       vencimento: document.getElementById(p+'Venc').value || todayISO(),
       categoria: document.getElementById(p+'Cat').value
