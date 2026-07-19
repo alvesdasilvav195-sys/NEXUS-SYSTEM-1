@@ -169,6 +169,7 @@
   </div>
 </div>
 <div class="app" id="appRoot" style="display:none;">
+<datalist id="listaContatosDatalist"></datalist>
   <div class="sidebar">
     <div class="brand">
       <div class="brand-mark">L</div>
@@ -335,8 +336,7 @@ let state = {
   cartoes: [],
   cartaoLancamentos: [],
   emprestimos: [],
-  categoriasDre: [],
-  configNotificacoes: { ativo:false, email:'', diasAntecedencia:3 }
+  categoriasDre: []
 };
 
 function planoPadrao(){
@@ -378,7 +378,7 @@ async function loadState(){
   if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
   if(!state.emprestimos) state.emprestimos = [];
   if(!state.categoriasDre || state.categoriasDre.length===0) state.categoriasDre = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
-  if(!state.configNotificacoes) state.configNotificacoes = { ativo:false, email:'', diasAntecedencia:3 };
+
 }
 
 let saveTimer=null;
@@ -474,7 +474,6 @@ const TITLES = {
   acesso:['Acesso e senha','Gerencie o usuário e a senha de entrada'],
   configEmpresa:['Dados da empresa','Usados nas faturas e no pró-labore'],
   categoriasDre:['Categorias da DRE','Crie novas categorias ou ajuste as atuais'],
-  notificacoes:['Avisos por e-mail','Seja avisado de contas a pagar e a receber'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
   cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
@@ -506,7 +505,6 @@ const NAV_ESTRUTURA = [
   {tipo:'grupo', id:'configuracoes', label:'Configurações', itens:[
     {tab:'configEmpresa', label:'Dados da empresa'},
     {tab:'categoriasDre', label:'Categorias da DRE'},
-    {tab:'notificacoes', label:'Avisos por e-mail'},
     {tab:'acesso', label:'Acesso e senha'},
     {tab:'backup', label:'Backup e atualização'}
   ]}
@@ -554,6 +552,7 @@ function setTab(tab){
 function render(){
   const view = document.getElementById('view');
   document.getElementById('empresaNomeSidebar').textContent = state.empresa.nome || 'Minha Empresa';
+  atualizarDatalistContatos();
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='crm') view.innerHTML = renderCRM();
@@ -571,7 +570,6 @@ function render(){
   if(activeTab==='acesso') view.innerHTML = renderAcesso();
   if(activeTab==='configEmpresa') view.innerHTML = renderConfigEmpresa();
   if(activeTab==='categoriasDre') view.innerHTML = renderCategoriasDre();
-  if(activeTab==='notificacoes') view.innerHTML = renderNotificacoes();
   if(activeTab==='backup') view.innerHTML = renderBackup();
   attachHandlers();
 }
@@ -663,36 +661,7 @@ function renderCategoriasDre(){
     <div class="hint" style="margin-top:10px;">Evite excluir as categorias "Transferência entre contas" e "Correção de saldo" — algumas funções automáticas do sistema usam elas.</div>
   </div>`;
 }
-function renderNotificacoes(){
-  const cfg = state.configNotificacoes;
-  return `
-  <div class="card">
-    <div class="card-head"><h2>Avisos por e-mail</h2></div>
-    <div class="hint" style="margin-bottom:12px;">Receba um e-mail diário resumindo as contas a pagar e a receber que estão perto do vencimento.</div>
-    <div class="form-grid" style="grid-template-columns:auto 1.4fr 1fr;">
-      <div class="field"><label>Ativado</label><select id="notifAtivo">
-        <option value="nao" ${!cfg.ativo?'selected':''}>Desativado</option>
-        <option value="sim" ${cfg.ativo?'selected':''}>Ativado</option>
-      </select></div>
-      <div class="field"><label>E-mail que vai receber os avisos</label><input type="email" id="notifEmail" placeholder="seuemail@exemplo.com" value="${escAttr(cfg.email||'')}"></div>
-      <div class="field"><label>Avisar com quantos dias de antecedência</label><input type="number" min="0" id="notifDias" value="${cfg.diasAntecedencia}"></div>
-    </div>
-    <button class="btn btn-primary" id="salvarNotificacoes" style="margin-top:10px;">Salvar</button>
-    <button class="btn" id="testarNotificacao" style="margin-top:10px; margin-left:8px;">Enviar e-mail de teste agora</button>
-    <div id="notifMsg" style="font-size:12px; margin-top:10px;"></div>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>Como isso funciona</h2></div>
-    <div class="hint" style="line-height:1.6;">
-      O envio de e-mail depende de um serviço configurado no servidor (Gmail com senha de app, por exemplo) — isso é feito uma vez, direto no Render, com variáveis de ambiente (<code>EMAIL_USER</code>, <code>EMAIL_APP_PASSWORD</code>).
-      <br><br>
-      Como o plano gratuito do Render "dorme" quando ninguém acessa, o envio automático diário depende de algo externo "acordar" o sistema uma vez por dia — recomendo usar o site <b>cron-job.org</b> (gratuito) apontando para:
-      <br><code>${window.location.origin}/api/notificacoes/verificar?token=SEU_TOKEN</code>
-      <br><br>
-      Se você ainda não configurou isso no servidor, me avise que te passo o passo a passo completo.
-    </div>
-  </div>`;
-}
+
 function contaNome(id){ const c = state.contas.find(c=>c.id===id); return c? (c.nome+(c.banco? ' · '+c.banco:'')) : '—'; }
 function escHtml(s){ return (s??'').toString().replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escAttr(s){ return escHtml(s); }
@@ -1022,18 +991,11 @@ function renderBlocoContas(tipo){
     <div class="card-head"><h2>${edit? `Editar conta a ${label}` : `Nova conta a ${label}`}</h2></div>
     <div class="form-grid" style="grid-template-columns:1.4fr 1.1fr 0.9fr 1fr 1.3fr auto;">
       <div class="field"><label>Descrição</label><input id="${idPrefix}Desc" placeholder="Ex: ${tipo==='pagar'?'Aluguel do escritório':'Serviço prestado ao cliente X'}" value="${edit? escAttr(edit.descricao):''}"></div>
-      <div class="field"><label>${pessoaLabel}</label><select id="${idPrefix}Parte">
-        <option value="">-- selecione --</option>
-        ${listaContatosCobranca().map(c=>`<option value="${c.ref}" ${edit&&edit.parteRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
-        <option value="avulso" ${edit&&(!edit.parteRef||edit.parteRef==='avulso')?'selected':''}>Outro (digitar nome)</option>
-      </select></div>
+      ${campoBuscaContato(idPrefix+'Parte', pessoaLabel, edit? edit.parte : '')}
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="${idPrefix}Valor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <div class="field"><label>Vencimento</label><input type="date" id="${idPrefix}Venc" value="${edit? edit.vencimento : todayISO()}"></div>
       <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':'')}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" data-add-conta="${tipo}">${edit? 'Salvar' : 'Adicionar'}</button>
-    </div>
-    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
-      <div class="field"><label>Nome (se "Outro")</label><input id="${idPrefix}ParteManual" placeholder="Nome de quem não está cadastrado" value="${edit&&(!edit.parteRef||edit.parteRef==='avulso')? escAttr(edit.parte||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" data-cancelar-edicao-conta="${tipo}" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
@@ -1176,11 +1138,7 @@ function renderNotas(){
         <option value="nota_comissao" ${edit&&edit.tipo==='nota_comissao'?'selected':''}>Nota de comissão</option>
         <option value="nota_servico" ${edit&&edit.tipo==='nota_servico'?'selected':''}>Nota de Prestação de Serviço</option>
       </select></div>
-      <div class="field"><label>Cliente / Fornecedor</label><select id="nfParte">
-        <option value="">-- selecione --</option>
-        ${listaContatosCobranca().map(c=>`<option value="${c.ref}" ${edit&&edit.parteRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
-        <option value="avulso" ${edit&&(!edit.parteRef||edit.parteRef==='avulso')?'selected':''}>Outro (digitar nome)</option>
-      </select></div>
+      <div class="field"><label>Cliente / Fornecedor</label><input list="listaContatosDatalist" id="nfParte" placeholder="Digite para buscar um cadastro ou um nome novo" value="${edit? escAttr(edit.parte||''):''}" autocomplete="off"></div>
       <div class="field"><label>Data</label><input type="date" id="nfData" value="${edit? edit.data : todayISO()}"></div>
       <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="nfValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <div class="field"><label>Status</label><select id="nfStatus">
@@ -1190,8 +1148,7 @@ function renderNotas(){
       </select></div>
       <button class="btn btn-primary" id="addNota">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
-    <div class="form-grid" style="grid-template-columns:1fr 2fr; margin-top:2px;">
-      <div class="field"><label>Nome (se "Outro")</label><input id="nfParteManual" placeholder="Nome de quem não está cadastrado" value="${edit&&(!edit.parteRef||edit.parteRef==='avulso')? escAttr(edit.parte||''):''}"></div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
       <div class="field"><label>Observações</label><input id="nfObs" placeholder="Detalhes sobre esta nota..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
@@ -1656,6 +1613,21 @@ function listaContatosCobranca(){
   state.clientes.forEach(c=> lista.push({ref:'consorciado:'+c.id, nome:c.nome+' (consorciado)', doc:'', email:c.email||'', telefone:c.contato||''}));
   return lista;
 }
+function campoBuscaContato(id, label, valorTexto){
+  return `<div class="field"><label>${label}</label><input list="listaContatosDatalist" id="${id}" placeholder="Digite para buscar um cadastro ou um nome novo" value="${escAttr(valorTexto||'')}" autocomplete="off"></div>`;
+}
+function atualizarDatalistContatos(){
+  const dl = document.getElementById('listaContatosDatalist');
+  if(!dl) return;
+  dl.innerHTML = listaContatosCobranca().map(c=>`<option value="${escAttr(c.nome)}"></option>`).join('');
+}
+function resolverContato(nomeDigitado){
+  const nome = (nomeDigitado||'').trim();
+  if(!nome) return { ref:null, nome:'' };
+  const encontrado = listaContatosCobranca().find(c=> c.nome.toLowerCase()===nome.toLowerCase());
+  if(encontrado) return { ref: encontrado.ref, nome: encontrado.nome };
+  return { ref:'avulso', nome };
+}
 function statusFatura(f){
   if(f.contasReceberId){
     const cr = state.contasReceber.find(i=>i.id===f.contasReceberId);
@@ -1667,21 +1639,15 @@ let faturaItensTemp = [];
 function totalItensFatura(){ return faturaItensTemp.reduce((s,i)=> s+(i.valor||0), 0); }
 function renderFaturas(){
   const edit = estadoEdicao.fatura ? state.faturas.find(f=>f.id===estadoEdicao.fatura) : null;
-  const contatos = listaContatosCobranca();
   const anoAtual = new Date().getFullYear();
   const proximoNumero = `${anoAtual}-${String(state.faturas.length + 1).padStart(4,'0')}`;
   const lista = [...state.faturas].sort((a,b)=> b.dataEmissao.localeCompare(a.dataEmissao));
   return `
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar fatura' : 'Nova fatura de cobrança'}</h2></div>
-    <div class="form-grid" style="grid-template-columns:0.9fr 1.4fr 1fr;">
+    <div class="form-grid" style="grid-template-columns:0.9fr 1.4fr;">
       <div class="field"><label>Número</label><input id="ftNumero" value="${edit? escAttr(edit.numero) : proximoNumero}"></div>
-      <div class="field"><label>Cliente</label><select id="ftContato">
-        <option value="">-- selecione ou digite abaixo --</option>
-        ${contatos.map(c=>`<option value="${c.ref}" ${edit&&edit.contatoRef===c.ref?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
-        <option value="avulso" ${edit&&edit.contatoRef==='avulso'?'selected':''}>Outro (digitar nome manualmente)</option>
-      </select></div>
-      <div class="field"><label>Nome (se "Outro")</label><input id="ftNomeManual" placeholder="Nome completo" value="${edit&&edit.contatoRef==='avulso'? escAttr(edit.nomeCliente):''}"></div>
+      <div class="field"><label>Cliente</label><input list="listaContatosDatalist" id="ftContato" placeholder="Digite para buscar um cadastro ou um nome novo" value="${edit? escAttr(edit.nomeCliente||''):''}" autocomplete="off"></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
       <div class="field"><label>Competência</label><input type="month" id="ftCompetencia" value="${edit? edit.competencia : todayISO().slice(0,7)}"></div>
@@ -2084,16 +2050,10 @@ function attachHandlers(){
   if(addFatura){
     addFatura.onclick = ()=>{
       const numero = document.getElementById('ftNumero').value.trim();
-      const contatoRef = document.getElementById('ftContato').value;
-      const nomeManual = document.getElementById('ftNomeManual').value.trim();
+      const { ref: contatoRef, nome: nomeCliente } = resolverContato(document.getElementById('ftContato').value);
       const valor = totalItensFatura();
-      if(!numero || !valor || (!contatoRef) || (contatoRef==='avulso' && !nomeManual)){
+      if(!numero || !valor || !nomeCliente){
         alert('Preencha número, cliente, e adicione ao menos um item de serviço.'); return;
-      }
-      let nomeCliente = nomeManual;
-      if(contatoRef!=='avulso'){
-        const c = listaContatosCobranca().find(c=>c.ref===contatoRef);
-        nomeCliente = c ? c.nome : nomeManual;
       }
       const dados = {
         numero, contatoRef, nomeCliente,
@@ -2657,16 +2617,10 @@ function attachHandlers(){
   if(addNota){
     addNota.onclick = async ()=>{
       const numero = document.getElementById('nfNumero').value.trim();
-      const parteRef = document.getElementById('nfParte').value;
-      const parteManual = document.getElementById('nfParteManual').value.trim();
+      const { ref: parteRef, nome: parte } = resolverContato(document.getElementById('nfParte').value);
       const valor = parseFloat(document.getElementById('nfValor').value);
-      if(!numero || !valor || !parteRef || (parteRef==='avulso' && !parteManual)){
-        alert('Preencha número, valor e o contato (ou digite o nome em "Outro").'); return;
-      }
-      let parte = parteManual;
-      if(parteRef!=='avulso'){
-        const c = listaContatosCobranca().find(c=>c.ref===parteRef);
-        parte = c ? c.nome : parteManual;
+      if(!numero || !valor || !parte){
+        alert('Preencha número, valor e o contato.'); return;
       }
       const dados = {
         numero, parte, parteRef,
@@ -2747,15 +2701,9 @@ function attachHandlers(){
     const p = tipo==='pagar'? 'pg' : 'rc';
     const desc = document.getElementById(p+'Desc').value.trim();
     const valor = parseFloat(document.getElementById(p+'Valor').value);
-    const parteRef = document.getElementById(p+'Parte').value;
-    const parteManual = document.getElementById(p+'ParteManual').value.trim();
-    if(!desc || !valor || !parteRef || (parteRef==='avulso' && !parteManual)){
-      alert('Preencha descrição, valor e o contato (ou digite o nome em "Outro").'); return;
-    }
-    let parteNome = parteManual;
-    if(parteRef!=='avulso'){
-      const c = listaContatosCobranca().find(c=>c.ref===parteRef);
-      parteNome = c ? c.nome : parteManual;
+    const { ref: parteRef, nome: parteNome } = resolverContato(document.getElementById(p+'Parte').value);
+    if(!desc || !valor || !parteNome){
+      alert('Preencha descrição, valor e o contato.'); return;
     }
     const dados = {
       descricao: desc,
