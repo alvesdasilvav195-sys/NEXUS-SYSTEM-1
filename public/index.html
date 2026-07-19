@@ -86,6 +86,19 @@
   .kpi .value.pos{ color:var(--accent-dark);} .kpi .value.neg{ color:var(--danger);}
 
   table{ width:100%; border-collapse:collapse; font-size:13px;}
+  .table-wrap{ overflow-x:auto; margin:0 -2px; }
+  .table-wrap table{ min-width:820px; }
+  .acoes-compactas{ display:flex; gap:2px; flex-wrap:nowrap; }
+  .acoes-compactas .btn-ghost, .acoes-compactas .btn-danger-ghost{ padding:4px 7px; font-size:11.5px; white-space:nowrap; }
+  .menu-acoes{ position:relative; display:inline-block; }
+  .menu-acoes > summary{ list-style:none; cursor:pointer; padding:5px 9px; border:1px solid var(--line-strong); border-radius:6px; font-size:15px; line-height:1; color:var(--ink-soft); user-select:none; }
+  .menu-acoes > summary::-webkit-details-marker{ display:none; }
+  .menu-acoes[open] > summary{ background:var(--bg); border-color:var(--ink-faint); }
+  .menu-acoes .menu-lista{ position:absolute; right:0; top:calc(100% + 4px); background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.10); min-width:190px; z-index:30; padding:5px; display:flex; flex-direction:column; }
+  .menu-acoes .menu-lista button{ text-align:left; width:100%; padding:8px 10px; border-radius:6px; font-size:12.5px; border:none; background:transparent; color:var(--ink); cursor:pointer; font-family:inherit; }
+  .menu-acoes .menu-lista button:hover{ background:var(--bg); }
+  .menu-acoes .menu-lista button.danger{ color:var(--danger); }
+  .menu-acoes .menu-lista .menu-info{ padding:6px 10px; font-size:11px; color:var(--ink-faint); }
   th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line-strong);}
   td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
   tr:last-child td{ border-bottom:none;}
@@ -1186,7 +1199,8 @@ function renderNotas(){
   <div class="card">
     <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
     ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
-    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Lançamento</th><th>Observações</th><th></th></tr></thead>
+    <div class="table-wrap">
+    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Obs.</th><th>Ações</th></tr></thead>
     <tbody>${notas.map(n=>{
       const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
       const st = statusNotaInfo(n.status);
@@ -1197,17 +1211,20 @@ function renderNotas(){
         <td class="muted">${fmtDate(n.data)}</td>
         <td class="num">${fmtMoney(n.valor)}</td>
         <td><span class="pill ${st.pill}">${st.label}</span></td>
-        <td style="white-space:nowrap;">
-          ${n.lancamentoTipo==='receber'? `<span class="pill green">Em Contas a receber</span>`
-          : n.lancamentoTipo==='pagar'? `<span class="pill red">Em Contas a pagar</span>`
-          : `<button class="btn-ghost" data-nota-lancar="${n.id}:receber">Lançar a receber</button> <button class="btn-ghost" data-nota-lancar="${n.id}:pagar">Lançar a pagar</button>`}
-        </td>
-        <td class="muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
-        <td style="white-space:nowrap;">
-          <button class="btn-ghost" data-ver-nota="${n.id}">Ver nota completa</button>
-          ${n.status!=='cancelada'? `<button class="btn-ghost" data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
-          <button class="btn-ghost" data-editar-nota="${n.id}">Editar</button>
-          <button class="btn-danger-ghost" data-del-nota="${n.id}">Excluir</button>
+        <td class="muted" style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
+        <td>
+          <details class="menu-acoes">
+            <summary>⋮</summary>
+            <div class="menu-lista">
+              ${n.lancamentoTipo==='receber'? `<div class="menu-info">Já lançada em Contas a receber</div>`
+              : n.lancamentoTipo==='pagar'? `<div class="menu-info">Já lançada em Contas a pagar</div>`
+              : `<button data-nota-lancar="${n.id}:receber">Lançar a receber</button><button data-nota-lancar="${n.id}:pagar">Lançar a pagar</button>`}
+              <button data-ver-nota="${n.id}">Ver nota completa</button>
+              ${n.status!=='cancelada'? `<button data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
+              <button data-editar-nota="${n.id}">Editar</button>
+              <button class="danger" data-del-nota="${n.id}">Excluir</button>
+            </div>
+          </details>
         </td>
       </tr>`;
     }).join('')}
@@ -1904,6 +1921,28 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
+  document.querySelectorAll('.menu-acoes').forEach(det=>{
+    det.addEventListener('toggle', ()=>{
+      if(!det.open) return;
+      document.querySelectorAll('.menu-acoes[open]').forEach(o=>{ if(o!==det) o.open=false; });
+      const lista = det.querySelector('.menu-lista');
+      if(!lista) return;
+      const rect = det.getBoundingClientRect();
+      const espacoAbaixo = window.innerHeight - rect.bottom;
+      lista.style.position = 'fixed';
+      lista.style.right = (window.innerWidth - rect.right) + 'px';
+      lista.style.left = 'auto';
+      if(espacoAbaixo < 230){
+        lista.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        lista.style.top = 'auto';
+      } else {
+        lista.style.top = (rect.bottom + 4) + 'px';
+        lista.style.bottom = 'auto';
+      }
+    });
+  });
+
+
   const cartaoContaSel = document.getElementById('cartaoConta');
   if(cartaoContaSel) cartaoContaSel.onchange = ()=>{ cartaoSel = cartaoContaSel.value; estadoEdicao.cartaoLanc=null; render(); };
   const addCartao = document.getElementById('addCartao');
@@ -2977,6 +3016,9 @@ function renderBackup(){
 }
 
 /* ---------------- Init ---------------- */
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest('.menu-acoes')) document.querySelectorAll('.menu-acoes[open]').forEach(d=> d.open=false);
+});
 async function iniciarApp(){
   document.getElementById('view').innerHTML = '<div class="card"><div class="empty">Carregando seus dados...</div></div>';
   await loadState();
