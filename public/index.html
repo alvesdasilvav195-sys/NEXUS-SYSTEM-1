@@ -747,6 +747,21 @@ function renderExtrato(){
       <div class="field"><label>Categoria (DRE)</label><select id="txCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit&&edit.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" id="addTx">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    ${edit? `
+    <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Conta bancária deste lançamento</label><select id="txConta">
+        ${state.contas.map(c=>`<option value="${c.id}" ${edit.contaId===c.id?'selected':''}>${escHtml(c.nome)}${c.banco? ' · '+escHtml(c.banco):''}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Nota fiscal vinculada (opcional)</label><select id="txNotaFiscal">
+        <option value="">-- nenhuma --</option>
+        ${state.notas.map(n=>`<option value="${n.id}" ${edit.notaFiscalId===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Observações</label><input id="txObs" placeholder="Anotações sobre este lançamento..." value="${escAttr(edit.obs||'')}"></div>
+    </div>
+    <div class="hint" style="margin-top:6px;">Trocar a conta bancária aqui move este lançamento para a conta escolhida (o saldo das duas contas é recalculado automaticamente).</div>
+    ` : ''}
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoTx" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
@@ -763,7 +778,7 @@ function renderExtrato(){
     <tbody>${linhas.map(({t,saldo})=>`
       <tr style="${t.estornado?'opacity:0.6;':''}">
         <td>${fmtDate(t.data)}</td>
-        <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''}</td>
+        <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''} ${t.obs? `<span class="muted" title="${escAttr(t.obs)}" style="cursor:help;">📝</span>`:''} ${t.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
         <td class="muted">${escHtml(catLabel(t.categoria))}</td>
         <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
         <td class="num">${fmtMoney(saldo)}</td>
@@ -997,34 +1012,55 @@ function renderBlocoContas(tipo){
       <div class="field"><label>Categoria (DRE)</label><select id="${idPrefix}Cat">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id===(tipo==='pagar'?'desp_admin':'receita_servicos')?'selected':'')}>${c.label}</option>`).join('')}</select></div>
       <button class="btn btn-primary" data-add-conta="${tipo}">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    <div class="form-grid" style="grid-template-columns:1fr 2fr; margin-top:2px;">
+      <div class="field"><label>Nota fiscal vinculada (opcional)</label><select id="${idPrefix}NotaFiscal">
+        <option value="">-- nenhuma --</option>
+        ${state.notas.map(n=>`<option value="${n.id}" ${edit&&edit.notaFiscalId===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Observações</label><input id="${idPrefix}Obs" placeholder="Anotações sobre este lançamento..." value="${edit? escAttr(edit.obs||''):''}"></div>
+    </div>
     ${edit? `<button class="btn-ghost" data-cancelar-edicao-conta="${tipo}" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>${tipo==='pagar'?'Contas a pagar':'Contas a receber'}</h2><span class="badge-count">${lista.length}</span></div>
     ${lista.length===0? `<div class="empty">Nenhuma conta a ${label} cadastrada ainda.</div>` : `
+    <div class="table-wrap">
     <table><thead><tr><th>Descrição</th><th>${pessoaLabel}</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
     <tbody>${lista.map(i=>{
       const st = statusConta(i);
       const pill = pillConta(st);
       return `<tr>
-        <td>${escHtml(i.descricao)}</td>
+        <td>${escHtml(i.descricao)} ${i.obs? `<span class="muted" title="${escAttr(i.obs)}" style="cursor:help;">📝</span>`:''} ${i.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
         <td class="muted">${escHtml(i.parte||'—')}</td>
         <td class="muted">${fmtDate(i.vencimento)}</td>
         <td class="num">${fmtMoney(i.valor)}</td>
         <td><span class="pill ${pill.c}">${pill.l}</span></td>
-        <td style="white-space:nowrap;">
-          ${st!=='pago'? `
-          <select data-conta-select="${tipo}:${i.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
-            ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
-          </select>
-          <button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>`:
-          `<button class="btn-ghost" data-pay-conta="${tipo}:${i.id}">Marcar como pendente</button>`}
-          <button class="btn-ghost" data-editar-conta-mov="${tipo}:${i.id}">Editar</button>
-          <button class="btn-danger-ghost" data-del-conta-mov="${tipo}:${i.id}">Excluir</button>
+        <td>
+          <details class="menu-acoes">
+            <summary>⋮</summary>
+            <div class="menu-lista">
+              ${st!=='pago'? `
+              <div class="menu-info">Escolha a conta e confirme:</div>
+              <select data-conta-select="${tipo}:${i.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
+                ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+              </select>
+              <button data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>
+              ` : `
+              <button data-pay-conta="${tipo}:${i.id}">Marcar como pendente (estorna)</button>
+              <div class="menu-info">Trocar conta bancária deste pagamento:</div>
+              <select data-trocar-conta-select="${tipo}:${i.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
+                ${state.contas.map(c=>`<option value="${c.id}" ${i.contaId===c.id?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+              </select>
+              <button data-trocar-conta="${tipo}:${i.id}">Confirmar troca de conta</button>
+              `}
+              <button data-editar-conta-mov="${tipo}:${i.id}">Editar</button>
+              <button class="danger" data-del-conta-mov="${tipo}:${i.id}">Excluir</button>
+            </div>
+          </details>
         </td>
       </tr>`;
     }).join('')}
-    </tbody></table>`}
+    </tbody></table></div>`}
   </div>`;
 }
 function renderContasPagarReceber(){
@@ -1636,30 +1672,40 @@ function statusFatura(f){
   return f.status || 'pendente';
 }
 let faturaItensTemp = [];
+let faturaFormTemp = {};
+function capturarFormFatura(){
+  const campos = ['ftNumero','ftContato','ftCompetencia','ftDataEmissao','ftVencimento','ftNotaFiscal','ftCategoria'];
+  const mapa = { ftNumero:'numero', ftContato:'nomeCliente', ftCompetencia:'competencia', ftDataEmissao:'dataEmissao', ftVencimento:'vencimento', ftNotaFiscal:'notaFiscalId', ftCategoria:'categoria' };
+  campos.forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) faturaFormTemp[mapa[id]] = el.value;
+  });
+}
 function totalItensFatura(){ return faturaItensTemp.reduce((s,i)=> s+(i.valor||0), 0); }
 function renderFaturas(){
   const edit = estadoEdicao.fatura ? state.faturas.find(f=>f.id===estadoEdicao.fatura) : null;
   const anoAtual = new Date().getFullYear();
   const proximoNumero = `${anoAtual}-${String(state.faturas.length + 1).padStart(4,'0')}`;
   const lista = [...state.faturas].sort((a,b)=> b.dataEmissao.localeCompare(a.dataEmissao));
+  const val = (campo, def)=> edit ? (edit[campo]!==undefined&&edit[campo]!==null ? edit[campo] : def) : (faturaFormTemp[campo]!==undefined ? faturaFormTemp[campo] : def);
   return `
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar fatura' : 'Nova fatura de cobrança'}</h2></div>
     <div class="form-grid" style="grid-template-columns:0.9fr 1.4fr;">
-      <div class="field"><label>Número</label><input id="ftNumero" value="${edit? escAttr(edit.numero) : proximoNumero}"></div>
-      <div class="field"><label>Cliente</label><input list="listaContatosDatalist" id="ftContato" placeholder="Digite para buscar um cadastro ou um nome novo" value="${edit? escAttr(edit.nomeCliente||''):''}" autocomplete="off"></div>
+      <div class="field"><label>Número</label><input id="ftNumero" value="${escAttr(val('numero', proximoNumero))}"></div>
+      <div class="field"><label>Cliente</label><input list="listaContatosDatalist" id="ftContato" placeholder="Digite para buscar um cadastro ou um nome novo" value="${escAttr(val('nomeCliente',''))}" autocomplete="off"></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
-      <div class="field"><label>Competência</label><input type="month" id="ftCompetencia" value="${edit? edit.competencia : todayISO().slice(0,7)}"></div>
-      <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${edit? edit.dataEmissao : todayISO()}"></div>
-      <div class="field"><label>Vencimento</label><input type="date" id="ftVencimento" value="${edit? edit.vencimento : todayISO()}"></div>
+      <div class="field"><label>Competência</label><input type="month" id="ftCompetencia" value="${val('competencia', todayISO().slice(0,7))}"></div>
+      <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${val('dataEmissao', todayISO())}"></div>
+      <div class="field"><label>Vencimento</label><input type="date" id="ftVencimento" value="${val('vencimento', todayISO())}"></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
       <div class="field"><label>Vincular nota fiscal (opcional)</label><select id="ftNotaFiscal">
         <option value="">-- nenhuma --</option>
-        ${state.notas.map(n=>`<option value="${n.id}" ${edit&&edit.notaFiscalId===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
+        ${state.notas.map(n=>`<option value="${n.id}" ${val('notaFiscalId','')===n.id?'selected':''}>Nº ${escHtml(n.numero)} — ${escHtml(n.parte)} — ${fmtMoney(n.valor)}</option>`).join('')}
       </select></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="ftCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${val('categoria','receita_servicos')===c.id?'selected':''}>${c.label}</option>`).join('')}</select></div>
     </div>
 
     <div class="dre-section-title">Itens / serviços cobrados nesta fatura</div>
@@ -2096,6 +2142,7 @@ function attachHandlers(){
         state.faturas.push({ id: faturaId, ...dados, contasReceberId: receberId, status:'pendente' });
       }
       faturaItensTemp = [];
+      faturaFormTemp = {};
       render(); saveState();
     };
   }
@@ -2105,11 +2152,13 @@ function attachHandlers(){
       const descricao = document.getElementById('ftItemDesc').value.trim();
       const valor = parseFloat(document.getElementById('ftItemValor').value);
       if(!descricao || !valor){ return; }
+      capturarFormFatura();
       faturaItensTemp.push({ descricao, valor: Math.abs(valor) });
       render();
     };
   }
   document.querySelectorAll('[data-del-item-fatura]').forEach(b=> b.onclick = ()=>{
+    capturarFormFatura();
     faturaItensTemp.splice(parseInt(b.dataset.delItemFatura), 1);
     render();
   });
@@ -2117,10 +2166,11 @@ function attachHandlers(){
     estadoEdicao.fatura = b.dataset.editarFatura;
     const f = state.faturas.find(f=>f.id===estadoEdicao.fatura);
     faturaItensTemp = f && f.itens ? f.itens.slice() : [];
+    faturaFormTemp = {};
     render();
   });
   const cancelarEdicaoFatura = document.getElementById('cancelarEdicaoFatura');
-  if(cancelarEdicaoFatura) cancelarEdicaoFatura.onclick = ()=>{ estadoEdicao.fatura=null; faturaItensTemp=[]; render(); };
+  if(cancelarEdicaoFatura) cancelarEdicaoFatura.onclick = ()=>{ estadoEdicao.fatura=null; faturaItensTemp=[]; faturaFormTemp={}; render(); };
   document.querySelectorAll('[data-ver-fatura]').forEach(b=> b.onclick = ()=>{
     const f = state.faturas.find(f=>f.id===b.dataset.verFatura);
     if(f) imprimirFatura(f);
@@ -2542,10 +2592,18 @@ function attachHandlers(){
       };
       if(estadoEdicao.tx){
         const item = state.transacoes.find(t=>t.id===estadoEdicao.tx);
-        if(item) Object.assign(item, dados);
+        if(item){
+          Object.assign(item, dados);
+          const contaSel = document.getElementById('txConta');
+          if(contaSel) item.contaId = contaSel.value;
+          const notaSel = document.getElementById('txNotaFiscal');
+          item.notaFiscalId = notaSel ? (notaSel.value || null) : (item.notaFiscalId||null);
+          const obsInput = document.getElementById('txObs');
+          if(obsInput) item.obs = obsInput.value.trim();
+        }
         estadoEdicao.tx = null;
       } else {
-        state.transacoes.push({ id: uid(), contaId: extratoContaSel, ...dados });
+        state.transacoes.push({ id: uid(), contaId: extratoContaSel, obs:'', notaFiscalId:null, ...dados });
       }
       render(); saveState();
     };
@@ -2711,7 +2769,9 @@ function attachHandlers(){
       parteRef,
       valor: Math.abs(valor),
       vencimento: document.getElementById(p+'Venc').value || todayISO(),
-      categoria: document.getElementById(p+'Cat').value
+      categoria: document.getElementById(p+'Cat').value,
+      notaFiscalId: document.getElementById(p+'NotaFiscal').value || null,
+      obs: document.getElementById(p+'Obs').value.trim()
     };
     const edId = tipo==='pagar' ? estadoEdicao.pagar : estadoEdicao.receber;
     if(edId){
@@ -2779,6 +2839,20 @@ function attachHandlers(){
       valor: item.valor,
       categoria: item.categoria
     });
+    render(); saveState();
+  });
+
+  document.querySelectorAll('[data-trocar-conta]').forEach(btn=> btn.onclick = ()=>{
+    const [tipo, id] = btn.dataset.trocarConta.split(':');
+    const lista = tipo==='pagar'? state.contasPagar : state.contasReceber;
+    const item = lista.find(i=>i.id===id);
+    if(!item || !item.transacaoId) return;
+    const sel = document.querySelector(`[data-trocar-conta-select="${tipo}:${id}"]`);
+    const novaContaId = sel ? sel.value : null;
+    if(!novaContaId || novaContaId===item.contaId) return;
+    const tx = state.transacoes.find(t=>t.id===item.transacaoId);
+    if(tx) tx.contaId = novaContaId;
+    item.contaId = novaContaId;
     render(); saveState();
   });
 
