@@ -481,7 +481,7 @@ const TITLES = {
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null };
 let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
@@ -1933,6 +1933,44 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
+  const addCategoria = document.getElementById('addCategoria');
+  if(addCategoria){
+    addCategoria.onclick = ()=>{
+      const label = document.getElementById('catNome').value.trim();
+      const grupo = document.getElementById('catGrupo').value;
+      if(!label){ alert('Digite o nome da categoria.'); return; }
+      if(estadoEdicao.categoria){
+        const item = state.categoriasDre.find(c=>c.id===estadoEdicao.categoria);
+        if(item){ item.label = label; item.grupo = grupo; }
+        estadoEdicao.categoria = null;
+      } else {
+        const idBase = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'categoria';
+        let id = idBase, contador = 1;
+        while(state.categoriasDre.some(c=>c.id===id)){ id = idBase+'_'+(++contador); }
+        state.categoriasDre.push({ id, label, grupo });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-categoria]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.categoria = b.dataset.editarCategoria; render();
+  });
+  const cancelarEdicaoCategoria = document.getElementById('cancelarEdicaoCategoria');
+  if(cancelarEdicaoCategoria) cancelarEdicaoCategoria.onclick = ()=>{ estadoEdicao.categoria=null; render(); };
+  document.querySelectorAll('[data-del-categoria]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.delCategoria;
+    if(id==='transferencia' || id==='ajuste_saldo'){
+      alert('Essa categoria é usada por funções automáticas do sistema (transferências e correção de saldo) e não pode ser excluída.');
+      return;
+    }
+    const emUso = state.transacoes.some(t=>t.categoria===id) || state.contasPagar.some(i=>i.categoria===id) || state.contasReceber.some(i=>i.categoria===id);
+    if(emUso && !confirm('Essa categoria já está sendo usada em algum lançamento. Se excluir, esses lançamentos continuam com a categoria antiga (só não vai mais aparecer nas opções). Deseja continuar?')) return;
+    state.categoriasDre = state.categoriasDre.filter(c=>c.id!==id);
+    if(estadoEdicao.categoria===id) estadoEdicao.categoria=null;
+    render(); saveState();
+  });
+
+
   document.querySelectorAll('.menu-acoes').forEach(det=>{
     det.addEventListener('toggle', ()=>{
       if(!det.open) return;
