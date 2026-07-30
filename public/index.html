@@ -336,6 +336,7 @@ let state = {
   cartoes: [],
   cartaoLancamentos: [],
   emprestimos: [],
+  talao: { vendas: [], parcelas: [], rules: {} },
   categoriasDre: []
 };
 
@@ -377,6 +378,10 @@ async function loadState(){
   if(!state.cartoes) state.cartoes = [];
   if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
   if(!state.emprestimos) state.emprestimos = [];
+  if(!state.talao) state.talao = { vendas:[], parcelas:[], rules: JSON.parse(JSON.stringify(TALAO_RULES_PADRAO)) };
+  if(!state.talao.vendas) state.talao.vendas = [];
+  if(!state.talao.parcelas) state.talao.parcelas = [];
+  if(!state.talao.rules || !state.talao.rules.Servopa) state.talao.rules = JSON.parse(JSON.stringify(TALAO_RULES_PADRAO));
   if(!state.categoriasDre || state.categoriasDre.length===0) state.categoriasDre = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
 
 }
@@ -475,6 +480,7 @@ const TITLES = {
   configEmpresa:['Dados da empresa','Usados nas faturas e no pró-labore'],
   categoriasDre:['Categorias da DRE','Crie novas categorias ou ajuste as atuais'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
+  talao:['Talão de comissões','Vendas de consórcio, tabelas de comissão e parcelas'],
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
   cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
   prolabore:['Pró-labore','Gere a folha de pró-labore em PDF'],
@@ -488,6 +494,7 @@ const NAV_ESTRUTURA = [
   {tipo:'item', tab:'agenda', label:'Agenda'},
   {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
     {tab:'crm', label:'CRM'},
+    {tab:'talao', label:'Talão de comissões'},
     {tab:'clientes', label:'Consorciados'},
     {tab:'fornecedores', label:'Clientes'}
   ]},
@@ -556,6 +563,7 @@ function render(){
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='crm') view.innerHTML = renderCRM();
+  if(activeTab==='talao') view.innerHTML = renderTalao();
   if(activeTab==='faturas') view.innerHTML = renderFaturas();
   if(activeTab==='cartoes') view.innerHTML = renderCartoesEmprestimos();
   if(activeTab==='prolabore') view.innerHTML = renderProLabore();
@@ -1538,6 +1546,326 @@ function linhaEventoAgenda(ev){
   </div>`;
 }
 
+/* ---------------- TALÃO DE COMISSÕES (consórcio) ---------------- */
+const TALAO_ADMS = ["Servopa", "Volks", "Embracon"];
+const TALAO_TIPOS_BEM = ["AUTO","IMÓVEL","MOTO","SERVIÇOS","PESADOS"];
+const TALAO_MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const TALAO_ANO_BASE = new Date().getFullYear();
+const TALAO_RULES_PADRAO = {
+  Servopa: { tabelas: [
+    { id: "sv-imovel", nome: "Imóvel (Jul-Dez)", percentuais: [30,20,15,15,15,15,0,0,0,0,0,15] },
+    { id: "sv-auto", nome: "Automóvel (Jul-Dez)", percentuais: [20,20,20,15,15,15,0,0,0,0,0,15] },
+  ]},
+  Volks: { tabelas: [
+    { id: "vk-normal", nome: "Normal/Vantagem", percentuais: [25,25,15,10] },
+    { id: "vk-acesso", nome: "Acesso", percentuais: [20,15,15,10] },
+  ]},
+  Embracon: { tabelas: [
+    { id: "em-mais", nome: "Mais", percentuais: [50,50,50,25,25] },
+    { id: "em-p01", nome: "P01", percentuais: [50,50,50,25,25] },
+    { id: "em-p02", nome: "P02", percentuais: [50,50,50,25,25] },
+    { id: "em-sma", nome: "SMA", percentuais: [50,50,50,25,25] },
+    { id: "em-ba", nome: "BA", percentuais: [40,25,25,25,25] },
+    { id: "em-bi1", nome: "BI1", percentuais: [40,25,25,25,25] },
+    { id: "em-bi2", nome: "BI2", percentuais: [40,25,25,25,25] },
+    { id: "em-tss", nome: "TSS", percentuais: [50,50,50,25,25] },
+    { id: "em-pse", nome: "PSE (só Imóvel)", percentuais: [50,50,50,25,25] },
+    { id: "em-ase", nome: "ASE", percentuais: [50,50,50,25,25] },
+    { id: "em-ape", nome: "APE", percentuais: [15,15,15,15,15,15,15,15] },
+    { id: "em-moto", nome: "Moto", percentuais: [30,25,25,15,15,10] },
+    { id: "em-servicos", nome: "Serviços", percentuais: [30,25,25,15,15,10] },
+    { id: "em-tp", nome: "TP", percentuais: [15,15,15,15,15,15,15,15] },
+    { id: "em-pc2", nome: "PC2 (só Auto)", percentuais: [50,50,50,25,25] },
+    { id: "em-tep", nome: "TEP", percentuais: [15,15,15,15,15,15,15,15] },
+    { id: "em-sep", nome: "SEP", percentuais: [50,50,50,25,25] },
+    { id: "em-tpf", nome: "TPF", percentuais: [40,25,25,25,25] },
+    { id: "em-spf", nome: "SPF", percentuais: [50,50,50,25,25] },
+    { id: "em-ei1", nome: "EI1", percentuais: [15,15,15,15,15,15,15,15] },
+    { id: "em-eta", nome: "ETA", percentuais: [20,20,20,20,20,20] },
+    { id: "em-sue", nome: "SUE", percentuais: [20,20,20,20,20,20] },
+  ]},
+  teto: "", piso: "",
+  acelerador: { metaMensal: "", multiplicador: 1.2 },
+};
+function talaoMesKey(i){ const m = ((i % 12) + 12) % 12, a = TALAO_ANO_BASE + Math.floor(i/12); return `${TALAO_MESES[m]}/${a}`; }
+function talaoGetTabela(adm, tabelaId, rules){
+  const tabelas = (rules[adm] && rules[adm].tabelas) || [];
+  return tabelas.find(t => t.id === tabelaId) || null;
+}
+function talaoCalcularComissao(form, rules, vendasExistentes){
+  const valorCredito = Number(form.valorCredito) || 0;
+  const tabela = talaoGetTabela(form.adm, form.tabelaId, rules);
+  if (!tabela) return { total: 0, parcelas: [], nParcelas: 0, taxaTotal: 0, origem: "selecione uma tabela", semTabela: true, clamp: null, acelerado: false };
+  const percentuais = tabela.percentuais || [];
+  const taxaTotal = percentuais.reduce((s,p) => s + (Number(p)||0), 0);
+  let parcelasBrutas = percentuais.map((pct, i) => ({
+    idx: form.mesInicialIdx + i, mes: talaoMesKey(form.mesInicialIdx + i),
+    percentual: Number(pct) || 0, valor: valorCredito * (Number(pct)||0) / 100,
+  }));
+  let total = parcelasBrutas.reduce((s,p) => s + p.valor, 0);
+  const teto = rules.teto === "" || rules.teto == null ? null : Number(rules.teto);
+  const piso = rules.piso === "" || rules.piso == null ? null : Number(rules.piso);
+  let clamp = null, fator = 1;
+  if (teto != null && total > teto && total > 0){ fator = teto / total; clamp = "teto"; }
+  if (piso != null && total < piso && total > 0){ fator = piso / total; clamp = "piso"; }
+  if (fator !== 1){ parcelasBrutas = parcelasBrutas.map(p => ({ ...p, valor: p.valor * fator })); total = total * fator; }
+  let acelerado = false;
+  const meta = rules.acelerador && rules.acelerador.metaMensal;
+  const mult = Number(rules.acelerador && rules.acelerador.multiplicador) || 1;
+  if (meta !== "" && meta != null){
+    const vendidoAntes = vendasExistentes.filter(v => v.mesInicialIdx === form.mesInicialIdx).reduce((s,v) => s + (Number(v.valorCredito) || 0), 0);
+    if ((vendidoAntes + valorCredito) >= Number(meta)){
+      parcelasBrutas = parcelasBrutas.map(p => ({ ...p, valor: p.valor * mult })); total = total * mult; acelerado = true;
+    }
+  }
+  return { total, parcelas: parcelasBrutas, nParcelas: parcelasBrutas.length, taxaTotal, origem: tabela.nome, semTabela: false, clamp, acelerado };
+}
+function talaoBarChart(data, cor){
+  const max = Math.max(1, ...data.map(d=>d.valor));
+  const n = data.length || 1;
+  return `<svg viewBox="0 0 300 160" width="100%" height="160" preserveAspectRatio="none">
+    ${data.map((d,i)=>{
+      const barH = (d.valor/max)*120;
+      const x = i*(300/n)+8, bw = (300/n)-16;
+      return `<rect x="${x}" y="${130-barH}" width="${Math.max(bw,4)}" height="${barH}" fill="${cor}" rx="3"></rect>
+      <text x="${x+bw/2}" y="148" font-size="9" fill="#8A8577" text-anchor="middle">${escHtml(d.adm)}</text>`;
+    }).join('')}
+  </svg>`;
+}
+function talaoLineChart(data, cor){
+  if(data.length===0) return '';
+  const max = Math.max(1, ...data.map(d=>d.valor));
+  const pontos = data.map((d,i)=>{
+    const x = (i/Math.max(1,data.length-1))*280+10;
+    const y = 130-((d.valor)/(max||1))*110;
+    return `${x},${y}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 300 160" width="100%" height="160" preserveAspectRatio="none">
+    <polyline points="${pontos}" fill="none" stroke="${cor}" stroke-width="2.5"></polyline>
+    ${data.map((d,i)=>{
+      const x = (i/Math.max(1,data.length-1))*280+10;
+      const y = 130-((d.valor)/(max||1))*110;
+      const mostrarLabel = data.length<=8 || i%Math.ceil(data.length/8)===0;
+      return `<circle cx="${x}" cy="${y}" r="2.5" fill="${cor}"></circle>${mostrarLabel? `<text x="${x}" y="148" font-size="8" fill="#8A8577" text-anchor="middle">${escHtml(d.mes)}</text>`:''}`;
+    }).join('')}
+  </svg>`;
+}
+let talaoSubTab = 'dashboard';
+let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0 };
+let talaoFiltroAdm = 'Todas';
+let talaoFiltroStatus = 'Todos';
+function talaoCapturarForm(){
+  const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito' };
+  Object.entries(campos).forEach(([campo,id])=>{
+    const el = document.getElementById(id);
+    if(el) talaoForm[campo] = el.value;
+  });
+}
+function renderTalao(){
+  const rules = state.talao.rules;
+  if(!talaoGetTabela(talaoForm.adm, talaoForm.tabelaId, rules)){
+    const tabelas = (rules[talaoForm.adm] && rules[talaoForm.adm].tabelas) || [];
+    talaoForm.tabelaId = tabelas[0] ? tabelas[0].id : '';
+  }
+  const abas = [
+    {id:'dashboard', label:'Dashboard'},
+    {id:'lancar', label:'Lançar venda'},
+    {id:'parcelas', label:'Parcelas'},
+    {id:'regras', label:'Tabelas de comissão'}
+  ];
+  return `
+  <div style="display:flex; gap:4px; margin-bottom:16px; flex-wrap:wrap;">
+    ${abas.map(a=>`<button class="btn ${talaoSubTab===a.id?'btn-primary':''}" data-talao-tab="${a.id}" style="font-size:12.5px;">${a.label}</button>`).join('')}
+  </div>
+  ${talaoSubTab==='dashboard'? renderTalaoDashboard() : ''}
+  ${talaoSubTab==='lancar'? renderTalaoLancar() : ''}
+  ${talaoSubTab==='parcelas'? renderTalaoParcelas() : ''}
+  ${talaoSubTab==='regras'? renderTalaoRegras() : ''}
+  `;
+}
+function renderTalaoDashboard(){
+  const parcelas = state.talao.parcelas;
+  const aReceber = parcelas.filter(p=>p.status==='A receber');
+  const recebido = parcelas.filter(p=>p.status==='Recebido');
+  const soma = arr=> arr.reduce((s,p)=>s+p.valor,0);
+  const porAdm = TALAO_ADMS.map(adm=> ({adm, valor: Math.round(parcelas.filter(p=>p.adm===adm).reduce((s,p)=>s+p.valor,0))}));
+  const evolucaoMap = {};
+  parcelas.forEach(p=>{ evolucaoMap[p.mes] = (evolucaoMap[p.mes]||0)+p.valor; });
+  const idx = m=>{ const [mm,aa]=m.split('/'); return Number(aa)*12+TALAO_MESES.indexOf(mm); };
+  const evolucao = Object.entries(evolucaoMap).sort((a,b)=>idx(a[0])-idx(b[0])).map(([mes,valor])=>({mes, valor:Math.round(valor)}));
+  const proximos = parcelas.filter(p=>p.status==='A receber').sort((a,b)=>a.idx-b.idx).slice(0,6);
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">A receber</div><div class="value">${fmtMoney(soma(aReceber))}</div><div class="hint">${aReceber.length} parcelas</div></div>
+    <div class="kpi"><div class="label">Recebido</div><div class="value pos">${fmtMoney(soma(recebido))}</div><div class="hint">${recebido.length} parcelas</div></div>
+    <div class="kpi"><div class="label">Vendas lançadas</div><div class="value">${state.talao.vendas.length}</div><div class="hint">total no talão</div></div>
+  </div>
+  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+    <div class="card" style="flex:1; min-width:260px; margin-bottom:0;">
+      <div class="card-head"><h2>Comissão por administradora</h2></div>
+      ${talaoBarChart(porAdm, '#7C6A46')}
+    </div>
+    <div class="card" style="flex:1; min-width:260px; margin-bottom:0;">
+      <div class="card-head"><h2>Evolução mensal</h2></div>
+      ${evolucao.length>0? talaoLineChart(evolucao, '#3F6B4E') : '<div class="empty">Sem dados ainda</div>'}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Próximos recebimentos</h2></div>
+    ${proximos.length===0? '<div class="empty">Nenhuma parcela pendente. Lance uma venda para começar.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${proximos.map(p=>talaoTicket(p)).join('')}
+    </div>`}
+  </div>`;
+}
+function talaoTicket(p){
+  return `<div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 14px;">
+    <div style="min-width:0;">
+      <div style="font-size:13.5px; font-weight:500;">${escHtml(p.cliente)}</div>
+      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace;">${escHtml(p.adm)} · ${p.tabela? escHtml(p.tabela)+' · ':''}${p.mes} · Cota ${escHtml(p.cota||'—')}</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
+      <span class="num" style="font-weight:600;">${fmtMoney(p.valor)}</span>
+      <button data-talao-toggle-parcela="${p.id}" class="pill ${p.status==='Recebido'?'green':'amber'}" style="border:none; cursor:pointer;">${p.status}</button>
+    </div>
+  </div>`;
+}
+function renderTalaoLancar(){
+  const rules = state.talao.rules;
+  const preview = talaoCalcularComissao(talaoForm, rules, state.talao.vendas);
+  const tabelas = (rules[talaoForm.adm] && rules[talaoForm.adm].tabelas) || [];
+  return `
+  <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+    <div class="card" style="flex:1 1 380px; margin-bottom:0;">
+      <div class="card-head"><h2>Lançar venda</h2></div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="field"><label>Cliente</label><input id="talCliente" placeholder="Nome do cliente" value="${escAttr(talaoForm.cliente)}"></div>
+        <div class="field"><label>Administradora</label><select id="talAdm">${TALAO_ADMS.map(a=>`<option value="${a}" ${talaoForm.adm===a?'selected':''}>${a}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+        <div class="field"><label>Tabela (${talaoForm.adm})</label><select id="talTabela">
+          ${tabelas.length===0? '<option value="">Nenhuma tabela cadastrada</option>' : tabelas.map(t=>{
+            const total = (t.percentuais||[]).reduce((s,p)=>s+(Number(p)||0),0);
+            return `<option value="${t.id}" ${talaoForm.tabelaId===t.id?'selected':''}>${escHtml(t.nome)} — ${total.toFixed(2)}% em ${t.percentuais.length}x</option>`;
+          }).join('')}
+        </select></div>
+      </div>
+      ${preview.semTabela? `<div class="hint" style="color:var(--danger); background:var(--danger-soft); padding:8px 10px; border-radius:6px; margin-top:8px;">Cadastre uma tabela para ${talaoForm.adm} na aba "Tabelas de comissão" antes de lançar.</div>` : ''}
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
+        <div class="field"><label>Grupo</label><input id="talGrupo" value="${escAttr(talaoForm.grupo)}"></div>
+        <div class="field"><label>Cota</label><input id="talCota" value="${escAttr(talaoForm.cota)}"></div>
+        <div class="field"><label>Contrato</label><input id="talContrato" value="${escAttr(talaoForm.contrato)}"></div>
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
+        <div class="field"><label>Tipo de bem</label><select id="talTipoBem">${TALAO_TIPOS_BEM.map(t=>`<option value="${t}" ${talaoForm.tipoBem===t?'selected':''}>${t}</option>`).join('')}</select></div>
+        <div class="field"><label>Valor do crédito (R$)</label><input class="num" type="number" min="0" id="talValorCredito" placeholder="0,00" value="${escAttr(talaoForm.valorCredito)}"></div>
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+        <div class="field"><label>Mês da 1ª parcela de comissão</label><select id="talMesInicial">
+          ${Array.from({length:12}).map((_,i)=>`<option value="${i}" ${talaoForm.mesInicialIdx===i?'selected':''}>${talaoMesKey(i)}</option>`).join('')}
+        </select></div>
+      </div>
+      <button class="btn btn-primary" id="talaoLancarVenda" style="margin-top:12px;" ${preview.semTabela?'disabled':''}>Lançar venda</button>
+    </div>
+    <div class="card" style="flex:0 0 300px; background:var(--ink); margin-bottom:0;">
+      <div style="font-size:11px; color:#9AA79C; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">Cálculo da comissão</div>
+      <div class="num" style="font-size:26px; font-weight:600; color:#F3EFE3; margin-bottom:8px;">${fmtMoney(preview.total)}</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;">
+        <span class="pill gray" style="background:#1B2C46; color:#B7C4D8;">${escHtml(preview.origem)} · ${preview.taxaTotal.toFixed(2)}%</span>
+        ${preview.clamp? `<span class="pill amber">${preview.clamp} aplicado</span>`:''}
+        ${preview.acelerado? `<span class="pill green">⚡ acelerador ativo</span>`:''}
+      </div>
+      <div style="font-size:11px; color:#9AA79C; margin-bottom:6px;">parcela = valor_crédito × % da parcela</div>
+      <div style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto;">
+        ${preview.parcelas.length===0? `<div style="font-size:12px; color:#7A8A7C;">Selecione uma tabela válida.</div>` :
+        preview.parcelas.map((p,i)=>`<div style="display:flex; justify-content:space-between; font-size:12px; font-family:'IBM Plex Mono',monospace; background:#0000002a; border-radius:6px; padding:6px 10px; color:#DCE6DD;">
+          <span>${i+1}ª · ${p.mes} · ${p.percentual}%</span><span style="font-weight:600; color:#fff;">${fmtMoney(p.valor)}</span>
+        </div>`).join('')}
+      </div>
+      <div style="font-size:11px; color:#9AA79C; margin-top:10px;">${preview.nParcelas} parcela(s) no total.</div>
+    </div>
+  </div>`;
+}
+function renderTalaoParcelas(){
+  const parcelas = state.talao.parcelas
+    .filter(p=> talaoFiltroAdm==='Todas' || p.adm===talaoFiltroAdm)
+    .filter(p=> talaoFiltroStatus==='Todos' || p.status===talaoFiltroStatus)
+    .sort((a,b)=>b.idx-a.idx);
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Parcelas de comissão</h2></div>
+    <select id="talaoFiltroAdm" style="width:auto; display:inline-block;">
+      <option ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
+      ${TALAO_ADMS.map(a=>`<option ${talaoFiltroAdm===a?'selected':''}>${a}</option>`).join('')}
+    </select>
+    <select id="talaoFiltroStatus" style="width:auto; display:inline-block; margin-left:8px;">
+      <option ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
+      <option ${talaoFiltroStatus==='A receber'?'selected':''}>A receber</option>
+      <option ${talaoFiltroStatus==='Recebido'?'selected':''}>Recebido</option>
+    </select>
+    <span class="hint" style="margin-left:10px;">${parcelas.length} parcela(s) · ${fmtMoney(parcelas.reduce((s,p)=>s+p.valor,0))}</span>
+  </div>
+  <div class="card">
+    ${parcelas.length===0? '<div class="empty">Nenhuma parcela encontrada com esses filtros.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${parcelas.map(p=>talaoTicket(p)).join('')}
+    </div>`}
+  </div>`;
+}
+function renderTalaoRegras(){
+  const rules = state.talao.rules;
+  return `
+  ${TALAO_ADMS.map(adm=>talaoTabelaManager(adm, rules[adm].tabelas)).join('')}
+  <div class="card">
+    <div class="card-head"><h2>Teto e piso por venda</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
+      <div class="field"><label>Teto (R$, opcional)</label><input class="num" type="number" id="talaoTeto" placeholder="sem limite" value="${escAttr(rules.teto)}"></div>
+      <div class="field"><label>Piso (R$, opcional)</label><input class="num" type="number" id="talaoPiso" placeholder="sem mínimo" value="${escAttr(rules.piso)}"></div>
+      <button class="btn btn-primary" id="talaoSalvarTetoPiso" style="align-self:end;">Salvar</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>⚡ Acelerador por meta batida</h2></div>
+    <div class="hint" style="margin-bottom:10px;">Se o total vendido no mês (soma do valor de crédito) atingir a meta, a comissão daquela venda é multiplicada.</div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
+      <div class="field"><label>Meta mensal (R$)</label><input class="num" type="number" id="talaoMetaMensal" placeholder="ex: 500000" value="${escAttr(rules.acelerador.metaMensal)}"></div>
+      <div class="field"><label>Multiplicador</label><input class="num" type="number" step="0.05" id="talaoMultiplicador" placeholder="ex: 1.2" value="${escAttr(rules.acelerador.multiplicador)}"></div>
+      <button class="btn btn-primary" id="talaoSalvarAcelerador" style="align-self:end;">Salvar</button>
+    </div>
+  </div>`;
+}
+function talaoTabelaManager(adm, tabelas){
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${adm} — tabelas</h2><button class="btn" data-talao-nova-tabela="${adm}">+ nova tabela</button></div>
+    <div class="hint" style="margin-bottom:10px;">Cada tabela tem sua própria % por parcela (não é taxa única dividida igualmente).</div>
+    ${tabelas.length===0? '<div class="empty">Nenhuma tabela cadastrada ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      ${tabelas.map(t=>{
+        const total = (t.percentuais||[]).reduce((s,p)=>s+(Number(p)||0),0);
+        return `<div style="border:1px solid var(--line); border-radius:8px; padding:12px;">
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+            <input data-talao-tabela-nome="${adm}:${t.id}" style="flex:1; font-weight:600;" value="${escAttr(t.nome)}" placeholder="Nome da tabela">
+            <span class="muted" style="font-size:12px; font-family:'IBM Plex Mono',monospace; white-space:nowrap;">total: ${total.toFixed(2)}%</span>
+            <button class="btn-danger-ghost" data-talao-remover-tabela="${adm}:${t.id}">Excluir</button>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            ${t.percentuais.map((pct,idx)=>`
+              <div style="display:flex; align-items:center; gap:3px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                  <span class="muted" style="font-size:9.5px;">${idx+1}ª</span>
+                  <input class="num" type="number" step="0.01" data-talao-parcela="${adm}:${t.id}:${idx}" value="${pct}" style="width:56px; padding:5px 6px; text-align:center;">
+                </div>
+                <button data-talao-remover-parcela="${adm}:${t.id}:${idx}" style="background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:12px;">×</button>
+              </div>`).join('')}
+            <button data-talao-add-parcela="${adm}:${t.id}" class="btn" style="font-size:11px; padding:5px 9px;">+ parcela</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}
+  </div>`;
+}
+
 /* ---------------- CRM ---------------- */
 const CRM_ETAPAS = [
   {id:'lead', label:'Novo lead', cor:'gray'},
@@ -1933,6 +2261,99 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
+  document.querySelectorAll('[data-talao-tab]').forEach(b=> b.onclick = ()=>{
+    talaoSubTab = b.dataset.talaoTab; render();
+  });
+  const talAdm = document.getElementById('talAdm');
+  if(talAdm) talAdm.onchange = ()=>{ talaoCapturarForm(); talaoForm.adm = talAdm.value; talaoForm.tabelaId=''; render(); };
+  const talTabela = document.getElementById('talTabela');
+  if(talTabela) talTabela.onchange = ()=>{ talaoCapturarForm(); talaoForm.tabelaId = talTabela.value; render(); };
+  const talValorCredito = document.getElementById('talValorCredito');
+  if(talValorCredito) talValorCredito.onchange = ()=>{ talaoCapturarForm(); render(); };
+  const talMesInicial = document.getElementById('talMesInicial');
+  if(talMesInicial) talMesInicial.onchange = ()=>{ talaoCapturarForm(); talaoForm.mesInicialIdx = parseInt(talMesInicial.value); render(); };
+  const talTipoBem = document.getElementById('talTipoBem');
+  if(talTipoBem) talTipoBem.onchange = ()=>{ talaoCapturarForm(); talaoForm.tipoBem = talTipoBem.value; render(); };
+  const talaoLancarVenda = document.getElementById('talaoLancarVenda');
+  if(talaoLancarVenda){
+    talaoLancarVenda.onclick = ()=>{
+      talaoCapturarForm();
+      const rules = state.talao.rules;
+      const preview = talaoCalcularComissao(talaoForm, rules, state.talao.vendas);
+      if(!talaoForm.cliente || !talaoForm.valorCredito || preview.semTabela){
+        alert('Preencha cliente, valor do crédito e selecione uma tabela válida.'); return;
+      }
+      const vendaId = uid();
+      state.talao.vendas.push({ id:vendaId, ...talaoForm, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now() });
+      preview.parcelas.forEach(p=>{
+        state.talao.parcelas.push({
+          id: uid(), vendaId, cliente: talaoForm.cliente, adm: talaoForm.adm, cota: talaoForm.cota,
+          tabela: preview.origem, mes: p.mes, idx: p.idx, valor: p.valor, percentual: p.percentual, status: 'A receber'
+        });
+      });
+      talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'' };
+      talaoSubTab = 'parcelas';
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-talao-toggle-parcela]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoToggleParcela);
+    if(p){ p.status = p.status==='A receber' ? 'Recebido' : 'A receber'; render(); saveState(); }
+  });
+  const talaoFiltroAdmSel = document.getElementById('talaoFiltroAdm');
+  if(talaoFiltroAdmSel) talaoFiltroAdmSel.onchange = ()=>{ talaoFiltroAdm = talaoFiltroAdmSel.value; render(); };
+  const talaoFiltroStatusSel = document.getElementById('talaoFiltroStatus');
+  if(talaoFiltroStatusSel) talaoFiltroStatusSel.onchange = ()=>{ talaoFiltroStatus = talaoFiltroStatusSel.value; render(); };
+
+  document.querySelectorAll('[data-talao-nova-tabela]').forEach(b=> b.onclick = ()=>{
+    const adm = b.dataset.talaoNovaTabela;
+    state.talao.rules[adm].tabelas.push({ id: uid(), nome:'', percentuais:[0,0,0,0] });
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-talao-remover-tabela]').forEach(b=> b.onclick = ()=>{
+    const [adm, id] = b.dataset.talaoRemoverTabela.split(':');
+    if(!confirm('Excluir esta tabela de comissão?')) return;
+    state.talao.rules[adm].tabelas = state.talao.rules[adm].tabelas.filter(t=>t.id!==id);
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-talao-tabela-nome]').forEach(inp=> inp.onchange = ()=>{
+    const [adm, id] = inp.dataset.talaoTabelaNome.split(':');
+    const t = state.talao.rules[adm].tabelas.find(t=>t.id===id);
+    if(t){ t.nome = inp.value; saveState(); }
+  });
+  document.querySelectorAll('[data-talao-parcela]').forEach(inp=> inp.onchange = ()=>{
+    const [adm, id, idx] = inp.dataset.talaoParcela.split(':');
+    const t = state.talao.rules[adm].tabelas.find(t=>t.id===id);
+    if(t){ t.percentuais[parseInt(idx)] = parseFloat(inp.value)||0; render(); saveState(); }
+  });
+  document.querySelectorAll('[data-talao-add-parcela]').forEach(b=> b.onclick = ()=>{
+    const [adm, id] = b.dataset.talaoAddParcela.split(':');
+    const t = state.talao.rules[adm].tabelas.find(t=>t.id===id);
+    if(t){ t.percentuais.push(0); render(); saveState(); }
+  });
+  document.querySelectorAll('[data-talao-remover-parcela]').forEach(b=> b.onclick = ()=>{
+    const [adm, id, idx] = b.dataset.talaoRemoverParcela.split(':');
+    const t = state.talao.rules[adm].tabelas.find(t=>t.id===id);
+    if(t){ t.percentuais.splice(parseInt(idx),1); render(); saveState(); }
+  });
+  const talaoSalvarTetoPiso = document.getElementById('talaoSalvarTetoPiso');
+  if(talaoSalvarTetoPiso){
+    talaoSalvarTetoPiso.onclick = ()=>{
+      state.talao.rules.teto = document.getElementById('talaoTeto').value;
+      state.talao.rules.piso = document.getElementById('talaoPiso').value;
+      render(); saveState();
+    };
+  }
+  const talaoSalvarAcelerador = document.getElementById('talaoSalvarAcelerador');
+  if(talaoSalvarAcelerador){
+    talaoSalvarAcelerador.onclick = ()=>{
+      state.talao.rules.acelerador.metaMensal = document.getElementById('talaoMetaMensal').value;
+      state.talao.rules.acelerador.multiplicador = parseFloat(document.getElementById('talaoMultiplicador').value)||1;
+      render(); saveState();
+    };
+  }
+
+
   const addCategoria = document.getElementById('addCategoria');
   if(addCategoria){
     addCategoria.onclick = ()=>{
