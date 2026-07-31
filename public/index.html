@@ -336,7 +336,7 @@ let state = {
   cartoes: [],
   cartaoLancamentos: [],
   emprestimos: [],
-  talao: { vendas: [], parcelas: [], rules: {} },
+  talao: { vendas: [], parcelas: [], rules: {}, metas: {} },
   categoriasDre: []
 };
 
@@ -378,7 +378,8 @@ async function loadState(){
   if(!state.cartoes) state.cartoes = [];
   if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
   if(!state.emprestimos) state.emprestimos = [];
-  if(!state.talao) state.talao = { vendas:[], parcelas:[], rules: JSON.parse(JSON.stringify(TALAO_RULES_PADRAO)) };
+  if(!state.talao) state.talao = { vendas:[], parcelas:[], rules: JSON.parse(JSON.stringify(TALAO_RULES_PADRAO)), metas:{} };
+  if(!state.talao.metas) state.talao.metas = {};
   if(!state.talao.vendas) state.talao.vendas = [];
   if(!state.talao.parcelas) state.talao.parcelas = [];
   if(!state.talao.rules || !state.talao.rules.Servopa) state.talao.rules = JSON.parse(JSON.stringify(TALAO_RULES_PADRAO));
@@ -1671,6 +1672,7 @@ function renderTalao(){
     {id:'dashboard', label:'Dashboard'},
     {id:'lancar', label:'Lançar venda'},
     {id:'parcelas', label:'Parcelas'},
+    {id:'meta', label:'Meta'},
     {id:'regras', label:'Tabelas de comissão'}
   ];
   return `
@@ -1680,6 +1682,7 @@ function renderTalao(){
   ${talaoSubTab==='dashboard'? renderTalaoDashboard() : ''}
   ${talaoSubTab==='lancar'? renderTalaoLancar() : ''}
   ${talaoSubTab==='parcelas'? renderTalaoParcelas() : ''}
+  ${talaoSubTab==='meta'? renderTalaoMeta() : ''}
   ${talaoSubTab==='regras'? renderTalaoRegras() : ''}
   `;
 }
@@ -1722,11 +1725,11 @@ function talaoTicket(p){
   return `<div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 14px;">
     <div style="min-width:0;">
       <div style="font-size:13.5px; font-weight:500;">${escHtml(p.cliente)}</div>
-      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace;">${escHtml(p.adm)} · ${p.tabela? escHtml(p.tabela)+' · ':''}${p.mes} · Cota ${escHtml(p.cota||'—')}</div>
+      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace;">${escHtml(p.adm)} · ${p.tabela? escHtml(p.tabela)+' · ':''}${p.mes} · Cota ${escHtml(p.cota||'—')}${p.numeroNF? ` · NF ${escHtml(p.numeroNF)}`:''}</div>
     </div>
     <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
       <span class="num" style="font-weight:600;">${fmtMoney(p.valor)}</span>
-      <button data-talao-toggle-parcela="${p.id}" class="pill ${p.status==='Recebido'?'green':'amber'}" style="border:none; cursor:pointer;">${p.status}</button>
+      <button data-talao-toggle-parcela="${p.id}" class="pill ${p.status==='Recebido'?'green':'amber'}" style="border:none; cursor:pointer;" title="${p.status==='Recebido'? 'Clique para estornar este recebimento' : 'Clique para marcar como recebido'}">${p.status}</button>
     </div>
   </div>`;
 }
@@ -1810,6 +1813,68 @@ function renderTalaoParcelas(){
     <div style="display:flex; flex-direction:column; gap:8px;">
       ${parcelas.map(p=>talaoTicket(p)).join('')}
     </div>`}
+  </div>`;
+}
+function talaoChaveMes(date){ return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`; }
+function talaoLabelChaveMes(chave){ const [a,m] = chave.split('-'); return `${TALAO_MESES[parseInt(m)-1]}/${a}`; }
+function talaoVendidoPorMes(){
+  const mapa = {};
+  state.talao.vendas.forEach(v=>{
+    const chave = talaoChaveMes(new Date(v.createdAt||Date.now()));
+    mapa[chave] = (mapa[chave]||0) + (Number(v.valorCredito)||0);
+  });
+  return mapa;
+}
+function talaoBarChartDuplo(data, corA, corB, labelA, labelB){
+  const max = Math.max(1, ...data.map(d=>Math.max(d.a,d.b)));
+  const n = data.length || 1;
+  const largura = 300/n;
+  return `
+  <div style="display:flex; gap:14px; align-items:center; margin-bottom:6px; font-size:11px;">
+    <span style="display:flex; align-items:center; gap:4px;"><span style="width:9px; height:9px; background:${corA}; border-radius:2px; display:inline-block;"></span>${labelA}</span>
+    <span style="display:flex; align-items:center; gap:4px;"><span style="width:9px; height:9px; background:${corB}; border-radius:2px; display:inline-block;"></span>${labelB}</span>
+  </div>
+  <svg viewBox="0 0 300 170" width="100%" height="170" preserveAspectRatio="none">
+    ${data.map((d,i)=>{
+      const barHA = (d.a/max)*120, barHB = (d.b/max)*120;
+      const x = i*largura+6, bw = Math.max((largura-12)/2 - 2, 3);
+      return `<rect x="${x}" y="${130-barHA}" width="${bw}" height="${barHA}" fill="${corA}" rx="2"></rect>
+      <rect x="${x+bw+2}" y="${130-barHB}" width="${bw}" height="${barHB}" fill="${corB}" rx="2"></rect>
+      <text x="${x+bw}" y="148" font-size="9" fill="#8A8577" text-anchor="middle">${escHtml(d.mes)}</text>`;
+    }).join('')}
+  </svg>`;
+}
+function renderTalaoMeta(){
+  const hoje = new Date();
+  const chaveAtual = talaoChaveMes(hoje);
+  const vendidoPorMes = talaoVendidoPorMes();
+  const vendidoMesAtual = vendidoPorMes[chaveAtual] || 0;
+  const metaMesAtual = Number(state.talao.metas[chaveAtual]) || 0;
+  const pct = metaMesAtual>0 ? Math.min(100, (vendidoMesAtual/metaMesAtual)*100) : 0;
+  const chaves = new Set([...Object.keys(vendidoPorMes), ...Object.keys(state.talao.metas)]);
+  const meses = Array.from(chaves).sort().slice(-6);
+  const dataChart = meses.map(chave=>({ mes: talaoLabelChaveMes(chave), a: vendidoPorMes[chave]||0, b: Number(state.talao.metas[chave])||0 }));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Meta do mês — ${talaoLabelChaveMes(chaveAtual)}</h2></div>
+    <div class="form-grid" style="grid-template-columns:1fr auto;">
+      <div class="field"><label>Meta de vendas (R$, soma do valor de crédito)</label><input class="num" type="number" min="0" id="talaoMetaMes" placeholder="ex: 500000" value="${escAttr(state.talao.metas[chaveAtual]||'')}"></div>
+      <button class="btn btn-primary" id="talaoSalvarMetaMes" style="align-self:end;">Salvar meta</button>
+    </div>
+    <div style="margin-top:16px;">
+      <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:6px;">
+        <span>Vendido este mês: <b>${fmtMoney(vendidoMesAtual)}</b></span>
+        <span class="muted">Meta: ${metaMesAtual>0? fmtMoney(metaMesAtual) : 'não definida'}</span>
+      </div>
+      <div style="background:var(--bg); border:1px solid var(--line); border-radius:20px; height:16px; overflow:hidden;">
+        <div style="background:${pct>=100?'var(--accent)':'var(--accent)'}; height:100%; width:${pct}%; transition:width .3s;"></div>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:4px;">${metaMesAtual>0? pct.toFixed(0)+'% da meta atingida' : 'Defina uma meta para acompanhar o progresso.'}</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Evolução — vendido vs. meta</h2></div>
+    ${dataChart.length===0? '<div class="empty">Sem dados suficientes ainda. Lance vendas e defina metas para ver a evolução.</div>' : talaoBarChartDuplo(dataChart, '#3F6B4E', '#B08900', 'Vendido', 'Meta')}
   </div>`;
 }
 function renderTalaoRegras(){
@@ -2284,11 +2349,26 @@ function attachHandlers(){
         alert('Preencha cliente, valor do crédito e selecione uma tabela válida.'); return;
       }
       const vendaId = uid();
-      state.talao.vendas.push({ id:vendaId, ...talaoForm, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now() });
+      const consorciadoId = uid();
+      state.clientes.push({
+        id: consorciadoId,
+        nome: talaoForm.cliente,
+        contato: '', email: '',
+        tipo: talaoForm.tipoBem,
+        contrato: talaoForm.contrato,
+        cota: talaoForm.cota,
+        admin: talaoForm.adm,
+        valor: Number(talaoForm.valorCredito)||0,
+        status: 'fechado',
+        data: todayISO(),
+        obs: `Lançado via Talão de comissões — tabela "${preview.origem}" · comissão total ${fmtMoney(preview.total)}.`
+      });
+      state.talao.vendas.push({ id:vendaId, ...talaoForm, consorciadoId, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now() });
       preview.parcelas.forEach(p=>{
         state.talao.parcelas.push({
           id: uid(), vendaId, cliente: talaoForm.cliente, adm: talaoForm.adm, cota: talaoForm.cota,
-          tabela: preview.origem, mes: p.mes, idx: p.idx, valor: p.valor, percentual: p.percentual, status: 'A receber'
+          tabela: preview.origem, mes: p.mes, idx: p.idx, valor: p.valor, percentual: p.percentual,
+          status: 'A receber', numeroNF:'', contasReceberId:null
         });
       });
       talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'' };
@@ -2298,7 +2378,48 @@ function attachHandlers(){
   }
   document.querySelectorAll('[data-talao-toggle-parcela]').forEach(b=> b.onclick = ()=>{
     const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoToggleParcela);
-    if(p){ p.status = p.status==='A receber' ? 'Recebido' : 'A receber'; render(); saveState(); }
+    if(!p) return;
+    if(p.status==='A receber'){
+      const nf = prompt('Número da Nota Fiscal referente a este recebimento (deixe em branco se não tiver):', p.numeroNF||'');
+      if(nf===null) return;
+      p.status = 'Recebido';
+      p.numeroNF = nf.trim();
+      const crId = uid();
+      state.contasReceber.push({
+        id: crId,
+        descricao: `Comissão consórcio — ${p.cliente} (${p.adm} · ${p.mes})` + (nf.trim()? ` — NF ${nf.trim()}` : ''),
+        parte: p.cliente,
+        valor: p.valor,
+        vencimento: todayISO(),
+        categoria: 'receita_servicos',
+        status: 'pendente',
+        obs: nf.trim()? `Nota fiscal: ${nf.trim()} · Parcela do Talão de comissões.` : 'Parcela do Talão de comissões.'
+      });
+      p.contasReceberId = crId;
+    } else {
+      if(!confirm('Estornar o recebimento desta parcela? Isso remove (ou estorna, se já tiver sido baixada) o lançamento correspondente em Contas a receber, e a parcela volta para "A receber".')) return;
+      if(p.contasReceberId){
+        const cr = state.contasReceber.find(c=>c.id===p.contasReceberId);
+        if(cr){
+          if(cr.status==='pago' && cr.transacaoId){
+            const original = state.transacoes.find(t=>t.id===cr.transacaoId);
+            if(original && !original.estornado){
+              original.estornado = true;
+              state.transacoes.push({
+                id: uid(), contaId: original.contaId, data: todayISO(),
+                descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
+                valor: original.valor, categoria: original.categoria, estornoDe: original.id
+              });
+            }
+          }
+          state.contasReceber = state.contasReceber.filter(c=>c.id!==cr.id);
+        }
+      }
+      p.status = 'A receber';
+      p.contasReceberId = null;
+      p.numeroNF = '';
+    }
+    render(); saveState();
   });
   const talaoFiltroAdmSel = document.getElementById('talaoFiltroAdm');
   if(talaoFiltroAdmSel) talaoFiltroAdmSel.onchange = ()=>{ talaoFiltroAdm = talaoFiltroAdmSel.value; render(); };
@@ -2349,6 +2470,15 @@ function attachHandlers(){
     talaoSalvarAcelerador.onclick = ()=>{
       state.talao.rules.acelerador.metaMensal = document.getElementById('talaoMetaMensal').value;
       state.talao.rules.acelerador.multiplicador = parseFloat(document.getElementById('talaoMultiplicador').value)||1;
+      render(); saveState();
+    };
+  }
+  const talaoSalvarMetaMes = document.getElementById('talaoSalvarMetaMes');
+  if(talaoSalvarMetaMes){
+    talaoSalvarMetaMes.onclick = ()=>{
+      const chaveAtual = talaoChaveMes(new Date());
+      const valor = parseFloat(document.getElementById('talaoMetaMes').value)||0;
+      state.talao.metas[chaveAtual] = valor;
       render(); saveState();
     };
   }
