@@ -99,6 +99,12 @@
   .menu-acoes .menu-lista button:hover{ background:var(--bg); }
   .menu-acoes .menu-lista button.danger{ color:var(--danger); }
   .menu-acoes .menu-lista .menu-info{ padding:6px 10px; font-size:11px; color:var(--ink-faint); }
+  .dia-acordeao{ border:1px solid var(--line); border-radius:8px; padding:0 12px; background:var(--surface); }
+  .dia-acordeao > summary{ list-style:none; display:flex; align-items:center; gap:10px; padding:10px 0; cursor:pointer; font-size:13px; }
+  .dia-acordeao > summary::-webkit-details-marker{ display:none; }
+  .dia-acordeao > summary .chev{ font-size:10px; color:var(--ink-faint); transition:transform .15s ease; flex-shrink:0; }
+  .dia-acordeao[open] > summary .chev{ transform:rotate(90deg); }
+  .dia-acordeao[open]{ padding-bottom:12px; }
   th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line-strong);}
   td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
   tr:last-child td{ border-bottom:none;}
@@ -712,6 +718,7 @@ function renderContas(){
 
 /* ---------------- EXTRATO BANCÁRIO ---------------- */
 let extratoContaSel = null;
+let extratoPeriodo = { mes: new Date().getMonth(), ano: new Date().getFullYear(), todos:false };
 let ofxPreview = null;
 let mostrarCorrecaoSaldo = false;
 function renderExtrato(){
@@ -721,10 +728,21 @@ function renderExtrato(){
   if(!extratoContaSel || !state.contas.find(c=>c.id===extratoContaSel)) extratoContaSel = state.contas[0].id;
   const txs = state.transacoes.filter(t=>t.contaId===extratoContaSel).sort((a,b)=> a.data.localeCompare(b.data));
   let saldoCorrido = state.contas.find(c=>c.id===extratoContaSel).saldoInicial||0;
-  const linhas = txs.map(t=>{
+  const todasLinhas = txs.map(t=>{
     saldoCorrido += (t.tipo==='credito'? t.valor : -t.valor);
     return {t, saldo:saldoCorrido};
   }).reverse();
+  const linhas = extratoPeriodo.todos ? todasLinhas : todasLinhas.filter(({t})=>{
+    const d = new Date(t.data+'T00:00:00');
+    return d.getMonth()===extratoPeriodo.mes && d.getFullYear()===extratoPeriodo.ano;
+  });
+  const anosDisponiveis = Array.from(new Set(state.transacoes.map(t=> new Date(t.data+'T00:00:00').getFullYear())));
+  if(!anosDisponiveis.includes(extratoPeriodo.ano)) anosDisponiveis.push(extratoPeriodo.ano);
+  anosDisponiveis.sort();
+  const gruposPorDia = {};
+  linhas.forEach(l=>{ (gruposPorDia[l.t.data] = gruposPorDia[l.t.data] || []).push(l); });
+  const diasOrdenados = Object.keys(gruposPorDia).sort((a,b)=> b.localeCompare(a));
+  const totalPeriodo = linhas.reduce((s,{t})=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
   const edit = estadoEdicao.tx ? state.transacoes.find(t=>t.id===estadoEdicao.tx) : null;
   return `
   <div class="card">
@@ -780,24 +798,50 @@ function renderExtrato(){
     ${ofxPreview? renderOfxPreview() : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Lançamentos</h2><span class="badge-count">${txs.length}</span></div>
-    ${linhas.length===0? '<div class="empty">Nenhum lançamento nesta conta ainda.</div>' : `
+    <div class="card-head">
+      <h2>Lançamentos</h2>
+      <span class="badge-count">${linhas.length}${extratoPeriodo.todos? '' : ' neste período'}</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+      <select id="extratoMes" ${extratoPeriodo.todos?'disabled':''} style="width:auto;">${MESES.map((m,i)=>`<option value="${i}" ${i===extratoPeriodo.mes?'selected':''}>${m}</option>`).join('')}</select>
+      <select id="extratoAno" ${extratoPeriodo.todos?'disabled':''} style="width:auto;">${anosDisponiveis.map(a=>`<option value="${a}" ${a===extratoPeriodo.ano?'selected':''}>${a}</option>`).join('')}</select>
+      <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;">
+        <input type="checkbox" id="extratoTodosPeriodos" ${extratoPeriodo.todos?'checked':''}> Ver todos os períodos
+      </label>
+      ${linhas.length>0? `<span class="pill ${totalPeriodo>=0?'green':'red'}" style="margin-left:auto;">Saldo do período: ${fmtMoney(totalPeriodo)}</span>`:''}
+    </div>
+    ${linhas.length===0? `<div class="empty">Nenhum lançamento ${extratoPeriodo.todos? 'nesta conta ainda' : 'neste período — os lançamentos de outros meses continuam salvos, só não aparecem aqui'}.</div>` : `
     <div class="hint" style="margin-bottom:10px;">Para desfazer um pagamento ou recebimento, use <b>"Estornar"</b> em vez de excluir — assim o lançamento original fica registrado no mês em que aconteceu (sem alterar a DRE de meses passados), e um lançamento de estorno é criado na data de hoje.</div>
-    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
-    <tbody>${linhas.map(({t,saldo})=>`
-      <tr style="${t.estornado?'opacity:0.6;':''}">
-        <td>${fmtDate(t.data)}</td>
-        <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''} ${t.obs? `<span class="muted" title="${escAttr(t.obs)}" style="cursor:help;">📝</span>`:''} ${t.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
-        <td class="muted">${escHtml(catLabel(t.categoria))}</td>
-        <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
-        <td class="num">${fmtMoney(saldo)}</td>
-        <td style="white-space:nowrap;">
-          ${!t.estornado && !t.estornoDe? `<button class="btn-ghost" data-estornar-tx="${t.id}">Estornar</button>` : ''}
-          <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
-          <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
-        </td>
-      </tr>`).join('')}
-    </tbody></table>`}
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      ${diasOrdenados.map(dia=>{
+        const itensDia = gruposPorDia[dia];
+        const totalDia = itensDia.reduce((s,{t})=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
+        return `
+        <details class="dia-acordeao">
+          <summary>
+            <span class="chev">▶</span>
+            <span style="font-weight:500;">${fmtDate(dia)}</span>
+            <span class="muted" style="font-size:11.5px;">${itensDia.length} lançamento${itensDia.length>1?'s':''}</span>
+            <span class="num ${totalDia>=0?'pos':'neg'}" style="margin-left:auto; font-weight:600;">${totalDia>=0?'+':''}${fmtMoney(totalDia)}</span>
+          </summary>
+          <div class="table-wrap">
+          <table style="margin-top:8px;"><thead><tr><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
+          <tbody>${itensDia.map(({t,saldo})=>`
+            <tr style="${t.estornado?'opacity:0.6;':''}">
+              <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''} ${t.obs? `<span class="muted" title="${escAttr(t.obs)}" style="cursor:help;">📝</span>`:''} ${t.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
+              <td class="muted">${escHtml(catLabel(t.categoria))}</td>
+              <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
+              <td class="num">${fmtMoney(saldo)}</td>
+              <td class="acoes-compactas">
+                ${!t.estornado && !t.estornoDe? `<button class="btn-ghost" data-estornar-tx="${t.id}">Estornar</button>` : ''}
+                <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
+                <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
+              </td>
+            </tr>`).join('')}
+          </tbody></table></div>
+        </details>`;
+      }).join('')}
+    </div>`}
   </div>`;
 }
 function renderOfxPreview(){
@@ -3131,6 +3175,12 @@ function attachHandlers(){
 
   const extratoConta = document.getElementById('extratoConta');
   if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; render(); };
+  const extratoMesSel = document.getElementById('extratoMes');
+  if(extratoMesSel) extratoMesSel.onchange = ()=>{ extratoPeriodo.mes = parseInt(extratoMesSel.value); render(); };
+  const extratoAnoSel = document.getElementById('extratoAno');
+  if(extratoAnoSel) extratoAnoSel.onchange = ()=>{ extratoPeriodo.ano = parseInt(extratoAnoSel.value); render(); };
+  const extratoTodosPeriodos = document.getElementById('extratoTodosPeriodos');
+  if(extratoTodosPeriodos) extratoTodosPeriodos.onchange = ()=>{ extratoPeriodo.todos = extratoTodosPeriodos.checked; render(); };
   const toggleCorrecaoSaldo = document.getElementById('toggleCorrecaoSaldo');
   if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; render(); };
   const excluirExtratoCompleto = document.getElementById('excluirExtratoCompleto');
@@ -3194,6 +3244,10 @@ function attachHandlers(){
       } else {
         state.transacoes.push({ id: uid(), contaId: extratoContaSel, obs:'', notaFiscalId:null, ...dados });
       }
+      if(!extratoPeriodo.todos){
+        const d = new Date(dados.data+'T00:00:00');
+        extratoPeriodo.mes = d.getMonth(); extratoPeriodo.ano = d.getFullYear();
+      }
       render(); saveState();
     };
   }
@@ -3254,6 +3308,7 @@ function attachHandlers(){
         });
       });
       ofxPreview = null;
+      extratoPeriodo.todos = true;
       render(); saveState();
     };
   }
