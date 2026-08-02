@@ -718,7 +718,38 @@ function renderContas(){
 
 /* ---------------- EXTRATO BANCÁRIO ---------------- */
 let extratoContaSel = null;
-let extratoPeriodo = { mes: new Date().getMonth(), ano: new Date().getFullYear(), todos:false };
+let periodoGlobal = { mes: new Date().getMonth(), ano: new Date().getFullYear(), todos:false };
+function dentroDoPeriodo(dataISO){
+  if(periodoGlobal.todos || !dataISO) return true;
+  const d = new Date(dataISO+'T00:00:00');
+  return d.getMonth()===periodoGlobal.mes && d.getFullYear()===periodoGlobal.ano;
+}
+function anosDisponiveisGlobal(){
+  const anos = new Set([periodoGlobal.ano]);
+  const coletar = (arr, campo)=> arr.forEach(item=>{ if(item[campo]) anos.add(new Date(item[campo]+'T00:00:00').getFullYear()); });
+  coletar(state.transacoes, 'data');
+  coletar(state.contasPagar, 'vencimento');
+  coletar(state.contasReceber, 'vencimento');
+  coletar(state.notas, 'data');
+  coletar(state.faturas, 'dataEmissao');
+  coletar(state.cartaoLancamentos, 'data');
+  return Array.from(anos).sort();
+}
+function periodoLabel(){
+  return periodoGlobal.todos ? 'todos os períodos' : `${MESES[periodoGlobal.mes]}/${periodoGlobal.ano}`;
+}
+function renderControlePeriodo(){
+  const anos = anosDisponiveisGlobal();
+  return `
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <select id="periodoMes" ${periodoGlobal.todos?'disabled':''} style="width:auto;">${MESES.map((m,i)=>`<option value="${i}" ${i===periodoGlobal.mes?'selected':''}>${m}</option>`).join('')}</select>
+    <select id="periodoAno" ${periodoGlobal.todos?'disabled':''} style="width:auto;">${anos.map(a=>`<option value="${a}" ${a===periodoGlobal.ano?'selected':''}>${a}</option>`).join('')}</select>
+    <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;">
+      <input type="checkbox" id="periodoTodos" ${periodoGlobal.todos?'checked':''}> Ver todos os períodos
+    </label>
+  </div>`;
+}
+
 let ofxPreview = null;
 let mostrarCorrecaoSaldo = false;
 function renderExtrato(){
@@ -732,16 +763,7 @@ function renderExtrato(){
     saldoCorrido += (t.tipo==='credito'? t.valor : -t.valor);
     return {t, saldo:saldoCorrido};
   }).reverse();
-  const linhas = extratoPeriodo.todos ? todasLinhas : todasLinhas.filter(({t})=>{
-    const d = new Date(t.data+'T00:00:00');
-    return d.getMonth()===extratoPeriodo.mes && d.getFullYear()===extratoPeriodo.ano;
-  });
-  const anosDisponiveis = Array.from(new Set(state.transacoes.map(t=> new Date(t.data+'T00:00:00').getFullYear())));
-  if(!anosDisponiveis.includes(extratoPeriodo.ano)) anosDisponiveis.push(extratoPeriodo.ano);
-  anosDisponiveis.sort();
-  const gruposPorDia = {};
-  linhas.forEach(l=>{ (gruposPorDia[l.t.data] = gruposPorDia[l.t.data] || []).push(l); });
-  const diasOrdenados = Object.keys(gruposPorDia).sort((a,b)=> b.localeCompare(a));
+  const linhas = periodoGlobal.todos ? todasLinhas : todasLinhas.filter(({t})=> dentroDoPeriodo(t.data));
   const totalPeriodo = linhas.reduce((s,{t})=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
   const edit = estadoEdicao.tx ? state.transacoes.find(t=>t.id===estadoEdicao.tx) : null;
   return `
@@ -800,48 +822,37 @@ function renderExtrato(){
   <div class="card">
     <div class="card-head">
       <h2>Lançamentos</h2>
-      <span class="badge-count">${linhas.length}${extratoPeriodo.todos? '' : ' neste período'}</span>
+      <span class="badge-count">${linhas.length}${periodoGlobal.todos? '' : ' neste período'}</span>
     </div>
-    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
-      <select id="extratoMes" ${extratoPeriodo.todos?'disabled':''} style="width:auto;">${MESES.map((m,i)=>`<option value="${i}" ${i===extratoPeriodo.mes?'selected':''}>${m}</option>`).join('')}</select>
-      <select id="extratoAno" ${extratoPeriodo.todos?'disabled':''} style="width:auto;">${anosDisponiveis.map(a=>`<option value="${a}" ${a===extratoPeriodo.ano?'selected':''}>${a}</option>`).join('')}</select>
-      <label style="display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink-soft); cursor:pointer;">
-        <input type="checkbox" id="extratoTodosPeriodos" ${extratoPeriodo.todos?'checked':''}> Ver todos os períodos
-      </label>
-      ${linhas.length>0? `<span class="pill ${totalPeriodo>=0?'green':'red'}" style="margin-left:auto;">Saldo do período: ${fmtMoney(totalPeriodo)}</span>`:''}
+    <div style="margin-bottom:14px;">
+      ${renderControlePeriodo()}
     </div>
-    ${linhas.length===0? `<div class="empty">Nenhum lançamento ${extratoPeriodo.todos? 'nesta conta ainda' : 'neste período — os lançamentos de outros meses continuam salvos, só não aparecem aqui'}.</div>` : `
+    ${linhas.length===0? `<div class="empty">Nenhum lançamento ${periodoGlobal.todos? 'nesta conta ainda' : 'neste período — os lançamentos de outros meses continuam salvos, só não aparecem aqui'}.</div>` : `
     <div class="hint" style="margin-bottom:10px;">Para desfazer um pagamento ou recebimento, use <b>"Estornar"</b> em vez de excluir — assim o lançamento original fica registrado no mês em que aconteceu (sem alterar a DRE de meses passados), e um lançamento de estorno é criado na data de hoje.</div>
-    <div style="display:flex; flex-direction:column; gap:6px;">
-      ${diasOrdenados.map(dia=>{
-        const itensDia = gruposPorDia[dia];
-        const totalDia = itensDia.reduce((s,{t})=> s + (t.tipo==='credito'? t.valor : -t.valor), 0);
-        return `
-        <details class="dia-acordeao">
-          <summary>
-            <span class="chev">▶</span>
-            <span style="font-weight:500;">${fmtDate(dia)}</span>
-            <span class="muted" style="font-size:11.5px;">${itensDia.length} lançamento${itensDia.length>1?'s':''}</span>
-            <span class="num ${totalDia>=0?'pos':'neg'}" style="margin-left:auto; font-weight:600;">${totalDia>=0?'+':''}${fmtMoney(totalDia)}</span>
-          </summary>
-          <div class="table-wrap">
-          <table style="margin-top:8px;"><thead><tr><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
-          <tbody>${itensDia.map(({t,saldo})=>`
-            <tr style="${t.estornado?'opacity:0.6;':''}">
-              <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''} ${t.obs? `<span class="muted" title="${escAttr(t.obs)}" style="cursor:help;">📝</span>`:''} ${t.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
-              <td class="muted">${escHtml(catLabel(t.categoria))}</td>
-              <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
-              <td class="num">${fmtMoney(saldo)}</td>
-              <td class="acoes-compactas">
-                ${!t.estornado && !t.estornoDe? `<button class="btn-ghost" data-estornar-tx="${t.id}">Estornar</button>` : ''}
-                <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
-                <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
-              </td>
-            </tr>`).join('')}
-          </tbody></table></div>
-        </details>`;
-      }).join('')}
-    </div>`}
+    <details class="dia-acordeao">
+      <summary>
+        <span class="chev">▶</span>
+        <span style="font-weight:500; text-transform:capitalize;">${escHtml(periodoLabel())}</span>
+        <span class="muted" style="font-size:11.5px;">${linhas.length} lançamento${linhas.length!==1?'s':''}</span>
+        <span class="num ${totalPeriodo>=0?'pos':'neg'}" style="margin-left:auto; font-weight:600;">${totalPeriodo>=0?'+':''}${fmtMoney(totalPeriodo)}</span>
+      </summary>
+      <div class="table-wrap" style="margin-top:8px;">
+      <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th><th class="num">Saldo</th><th></th></tr></thead>
+      <tbody>${linhas.map(({t,saldo})=>`
+        <tr style="${t.estornado?'opacity:0.6;':''}">
+          <td class="muted">${fmtDate(t.data)}</td>
+          <td>${escHtml(t.descricao)} ${t.estornado?'<span class="pill gray">Estornado</span>':''} ${t.estornoDe?'<span class="pill amber">Estorno</span>':''} ${t.obs? `<span class="muted" title="${escAttr(t.obs)}" style="cursor:help;">📝</span>`:''} ${t.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
+          <td class="muted">${escHtml(catLabel(t.categoria))}</td>
+          <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td>
+          <td class="num">${fmtMoney(saldo)}</td>
+          <td class="acoes-compactas">
+            ${!t.estornado && !t.estornoDe? `<button class="btn-ghost" data-estornar-tx="${t.id}">Estornar</button>` : ''}
+            <button class="btn-ghost" data-editar-tx="${t.id}">Editar</button>
+            <button class="btn-danger-ghost" data-del-tx="${t.id}">Excluir</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table></div>
+    </details>`}
   </div>`;
 }
 function renderOfxPreview(){
@@ -1075,28 +1086,40 @@ function renderBlocoContas(tipo){
     ${edit? `<button class="btn-ghost" data-cancelar-edicao-conta="${tipo}" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>${tipo==='pagar'?'Contas a pagar':'Contas a receber'}</h2><span class="badge-count">${lista.length}</span></div>
-    ${lista.length===0? `<div class="empty">Nenhuma conta a ${label} cadastrada ainda.</div>` : `
-    <div class="table-wrap">
-    <table><thead><tr><th>Descrição</th><th>${pessoaLabel}</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
-    <tbody>${lista.map(i=>{
-      const st = statusConta(i);
-      const pill = pillConta(st);
-      return `<tr>
-        <td>${escHtml(i.descricao)} ${i.obs? `<span class="muted" title="${escAttr(i.obs)}" style="cursor:help;">📝</span>`:''} ${i.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
-        <td class="muted">${escHtml(i.parte||'—')}</td>
-        <td class="muted">${fmtDate(i.vencimento)}</td>
-        <td class="num">${fmtMoney(i.valor)}</td>
-        <td><span class="pill ${pill.c}">${pill.l}</span></td>
-        <td>
-          <details class="menu-acoes">
-            <summary>⋮</summary>
-            <div class="menu-lista">
-              ${st!=='pago'? `
-              <div class="menu-info">Escolha a conta e confirme:</div>
-              <select data-conta-select="${tipo}:${i.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
-                ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
-              </select>
+    <div class="card-head"><h2>${tipo==='pagar'?'Contas a pagar':'Contas a receber'}</h2><span class="badge-count">${lista.length} no total</span></div>
+    <div style="margin-bottom:14px;">${renderControlePeriodo()}</div>
+    ${(()=>{
+      const listaPeriodo = periodoGlobal.todos ? lista : lista.filter(i=> dentroDoPeriodo(i.vencimento));
+      if(listaPeriodo.length===0) return `<div class="empty">Nenhuma conta a ${label} com vencimento ${periodoGlobal.todos?'cadastrada ainda':'em '+periodoLabel()}.</div>`;
+      const totalListaPeriodo = listaPeriodo.reduce((s,i)=> s + (tipo==='pagar'? -i.valor : i.valor), 0);
+      return `
+      <details class="dia-acordeao">
+        <summary>
+          <span class="chev">▶</span>
+          <span style="font-weight:500; text-transform:capitalize;">${escHtml(periodoLabel())}</span>
+          <span class="muted" style="font-size:11.5px;">${listaPeriodo.length} lançamento${listaPeriodo.length!==1?'s':''}</span>
+          <span class="num ${totalListaPeriodo>=0?'pos':'neg'}" style="margin-left:auto; font-weight:600;">${fmtMoney(Math.abs(totalListaPeriodo))}</span>
+        </summary>
+        <div class="table-wrap" style="margin-top:8px;">
+        <table><thead><tr><th>Descrição</th><th>${pessoaLabel}</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+        <tbody>${listaPeriodo.map(i=>{
+          const st = statusConta(i);
+          const pill = pillConta(st);
+          return `<tr>
+            <td>${escHtml(i.descricao)} ${i.obs? `<span class="muted" title="${escAttr(i.obs)}" style="cursor:help;">📝</span>`:''} ${i.notaFiscalId? `<span class="muted" title="Nota fiscal vinculada" style="cursor:help;">🧾</span>`:''}</td>
+            <td class="muted">${escHtml(i.parte||'—')}</td>
+            <td class="muted">${fmtDate(i.vencimento)}</td>
+            <td class="num">${fmtMoney(i.valor)}</td>
+            <td><span class="pill ${pill.c}">${pill.l}</span></td>
+            <td>
+              <details class="menu-acoes">
+                <summary>⋮</summary>
+                <div class="menu-lista">
+                  ${st!=='pago'? `
+                  <div class="menu-info">Escolha a conta e confirme:</div>
+                  <select data-conta-select="${tipo}:${i.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
+                    ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+                  </select>
               <button data-pay-conta="${tipo}:${i.id}">${tipo==='pagar'?'Marcar como pago':'Marcar como recebido'}</button>
               ` : `
               <button data-pay-conta="${tipo}:${i.id}">Marcar como pendente (estorna)</button>
@@ -1112,8 +1135,10 @@ function renderBlocoContas(tipo){
           </details>
         </td>
       </tr>`;
-    }).join('')}
-    </tbody></table></div>`}
+        }).join('')}
+        </tbody></table></div>
+      </details>`;
+    })()}
   </div>`;
 }
 function renderContasPagarReceber(){
@@ -1243,38 +1268,52 @@ function renderNotas(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length}</span></div>
-    ${notas.length===0? '<div class="empty">Nenhuma nota fiscal cadastrada ainda.</div>' : `
-    <div class="table-wrap">
-    <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Obs.</th><th>Ações</th></tr></thead>
-    <tbody>${notas.map(n=>{
-      const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
-      const st = statusNotaInfo(n.status);
-      return `<tr>
-        <td>${escHtml(n.numero)}</td>
-        <td><span class="pill ${t.pill}">${t.label}</span></td>
-        <td>${escHtml(n.parte)}</td>
-        <td class="muted">${fmtDate(n.data)}</td>
-        <td class="num">${fmtMoney(n.valor)}</td>
-        <td><span class="pill ${st.pill}">${st.label}</span></td>
-        <td class="muted" style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
-        <td>
-          <details class="menu-acoes">
-            <summary>⋮</summary>
-            <div class="menu-lista">
-              ${n.lancamentoTipo==='receber'? `<div class="menu-info">Já lançada em Contas a receber</div>`
-              : n.lancamentoTipo==='pagar'? `<div class="menu-info">Já lançada em Contas a pagar</div>`
-              : `<button data-nota-lancar="${n.id}:receber">Lançar a receber</button><button data-nota-lancar="${n.id}:pagar">Lançar a pagar</button>`}
-              <button data-ver-nota="${n.id}">Ver nota completa</button>
-              ${n.status!=='cancelada'? `<button data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
-              <button data-editar-nota="${n.id}">Editar</button>
-              <button class="danger" data-del-nota="${n.id}">Excluir</button>
-            </div>
-          </details>
-        </td>
-      </tr>`;
-    }).join('')}
-    </tbody></table>`}
+    <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length} no total</span></div>
+    <div style="margin-bottom:14px;">${renderControlePeriodo()}</div>
+    ${(()=>{
+      const notasPeriodo = periodoGlobal.todos ? notas : notas.filter(n=> dentroDoPeriodo(n.data));
+      if(notasPeriodo.length===0) return `<div class="empty">Nenhuma nota fiscal com data ${periodoGlobal.todos?'cadastrada ainda':'em '+periodoLabel()}.</div>`;
+      const totalNotasPeriodo = notasPeriodo.reduce((s,n)=> s+n.valor, 0);
+      return `
+      <details class="dia-acordeao">
+        <summary>
+          <span class="chev">▶</span>
+          <span style="font-weight:500; text-transform:capitalize;">${escHtml(periodoLabel())}</span>
+          <span class="muted" style="font-size:11.5px;">${notasPeriodo.length} nota${notasPeriodo.length!==1?'s':''}</span>
+          <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(totalNotasPeriodo)}</span>
+        </summary>
+        <div class="table-wrap" style="margin-top:8px;">
+        <table><thead><tr><th>Nº</th><th>Tipo</th><th>Cliente / Fornecedor</th><th>Data</th><th class="num">Valor</th><th>Status</th><th>Obs.</th><th>Ações</th></tr></thead>
+        <tbody>${notasPeriodo.map(n=>{
+          const t = NOTA_TIPOS[n.tipo] || NOTA_TIPOS.emitida;
+          const st = statusNotaInfo(n.status);
+          return `<tr>
+            <td>${escHtml(n.numero)}</td>
+            <td><span class="pill ${t.pill}">${t.label}</span></td>
+            <td>${escHtml(n.parte)}</td>
+            <td class="muted">${fmtDate(n.data)}</td>
+            <td class="num">${fmtMoney(n.valor)}</td>
+            <td><span class="pill ${st.pill}">${st.label}</span></td>
+            <td class="muted" style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(n.obs||'')}">${escHtml(n.obs||'—')}</td>
+            <td>
+              <details class="menu-acoes">
+                <summary>⋮</summary>
+                <div class="menu-lista">
+                  ${n.lancamentoTipo==='receber'? `<div class="menu-info">Já lançada em Contas a receber</div>`
+                  : n.lancamentoTipo==='pagar'? `<div class="menu-info">Já lançada em Contas a pagar</div>`
+                  : `<button data-nota-lancar="${n.id}:receber">Lançar a receber</button><button data-nota-lancar="${n.id}:pagar">Lançar a pagar</button>`}
+                  <button data-ver-nota="${n.id}">Ver nota completa</button>
+                  ${n.status!=='cancelada'? `<button data-toggle-pago-nota="${n.id}">${n.status==='paga'?'Marcar como pendente':'Marcar como paga'}</button>`:''}
+                  <button data-editar-nota="${n.id}">Editar</button>
+                  <button class="danger" data-del-nota="${n.id}">Excluir</button>
+                </div>
+              </details>
+            </td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>
+      </details>`;
+    })()}
     <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Ao lançar uma nota em Contas a pagar/receber, ela entra automaticamente lá com o mesmo valor; se você excluir a nota depois, o lançamento correspondente é removido também.</div>
   </div>
   ${notaVisualizada? renderNotaCompleta() : ''}`;
@@ -2164,32 +2203,47 @@ function renderFaturas(){
     ${!edit? `<div class="hint" style="margin-top:10px;">Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o valor total dos itens e o vencimento informado.</div>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Faturas emitidas</h2><span class="badge-count">${lista.length}</span></div>
-    ${lista.length===0? '<div class="empty">Nenhuma fatura gerada ainda.</div>' : `
-    <table><thead><tr><th>Nº</th><th>Cliente</th><th>Emissão</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
-    <tbody>${lista.map(f=>{
-      const st = statusFatura(f);
-      const p = st==='pago'?{c:'green',l:'Paga'}:st==='atrasado'?{c:'red',l:'Atrasada'}:{c:'amber',l:'Pendente'};
-      return `<tr>
-        <td>${escHtml(f.numero)}</td>
-        <td>${escHtml(f.nomeCliente)}</td>
-        <td class="muted">${fmtDate(f.dataEmissao)}</td>
-        <td class="muted">${fmtDate(f.vencimento)}</td>
-        <td class="num">${fmtMoney(f.valor)}</td>
-        <td><span class="pill ${p.c}">${p.l}</span></td>
-        <td style="white-space:nowrap;">
-          ${st==='pago'? `<button class="btn-ghost" data-estornar-fatura="${f.id}">Estornar pagamento</button>` : `
-          <select data-fatura-conta-select="${f.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
-            ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
-          </select>
-          <button class="btn-ghost" data-pagar-fatura="${f.id}">Marcar como paga</button>`}
-          <button class="btn-ghost" data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
-          <button class="btn-ghost" data-editar-fatura="${f.id}">Editar</button>
-          <button class="btn-danger-ghost" data-del-fatura="${f.id}">Excluir</button>
-        </td>
-      </tr>`;
-    }).join('')}
-    </tbody></table>`}
+    <div class="card-head"><h2>Faturas emitidas</h2><span class="badge-count">${lista.length} no total</span></div>
+    <div style="margin-bottom:14px;">${renderControlePeriodo()}</div>
+    ${(()=>{
+      const listaPeriodo = periodoGlobal.todos ? lista : lista.filter(f=> dentroDoPeriodo(f.dataEmissao));
+      if(listaPeriodo.length===0) return `<div class="empty">Nenhuma fatura emitida ${periodoGlobal.todos?'ainda':'em '+periodoLabel()}.</div>`;
+      const totalListaPeriodo = listaPeriodo.reduce((s,f)=> s+f.valor, 0);
+      return `
+      <details class="dia-acordeao">
+        <summary>
+          <span class="chev">▶</span>
+          <span style="font-weight:500; text-transform:capitalize;">${escHtml(periodoLabel())}</span>
+          <span class="muted" style="font-size:11.5px;">${listaPeriodo.length} fatura${listaPeriodo.length!==1?'s':''}</span>
+          <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(totalListaPeriodo)}</span>
+        </summary>
+        <div class="table-wrap" style="margin-top:8px;">
+        <table><thead><tr><th>Nº</th><th>Cliente</th><th>Emissão</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+        <tbody>${listaPeriodo.map(f=>{
+          const st = statusFatura(f);
+          const p = st==='pago'?{c:'green',l:'Paga'}:st==='atrasado'?{c:'red',l:'Atrasada'}:{c:'amber',l:'Pendente'};
+          return `<tr>
+            <td>${escHtml(f.numero)}</td>
+            <td>${escHtml(f.nomeCliente)}</td>
+            <td class="muted">${fmtDate(f.dataEmissao)}</td>
+            <td class="muted">${fmtDate(f.vencimento)}</td>
+            <td class="num">${fmtMoney(f.valor)}</td>
+            <td><span class="pill ${p.c}">${p.l}</span></td>
+            <td style="white-space:nowrap;">
+              ${st==='pago'? `<button class="btn-ghost" data-estornar-fatura="${f.id}">Estornar pagamento</button>` : `
+              <select data-fatura-conta-select="${f.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
+                ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+              </select>
+              <button class="btn-ghost" data-pagar-fatura="${f.id}">Marcar como paga</button>`}
+              <button class="btn-ghost" data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
+              <button class="btn-ghost" data-editar-fatura="${f.id}">Editar</button>
+              <button class="btn-danger-ghost" data-del-fatura="${f.id}">Excluir</button>
+            </td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>
+      </details>`;
+    })()}
   </div>`;
 }
 async function imprimirFatura(fatura){
@@ -3175,12 +3229,12 @@ function attachHandlers(){
 
   const extratoConta = document.getElementById('extratoConta');
   if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; render(); };
-  const extratoMesSel = document.getElementById('extratoMes');
-  if(extratoMesSel) extratoMesSel.onchange = ()=>{ extratoPeriodo.mes = parseInt(extratoMesSel.value); render(); };
-  const extratoAnoSel = document.getElementById('extratoAno');
-  if(extratoAnoSel) extratoAnoSel.onchange = ()=>{ extratoPeriodo.ano = parseInt(extratoAnoSel.value); render(); };
-  const extratoTodosPeriodos = document.getElementById('extratoTodosPeriodos');
-  if(extratoTodosPeriodos) extratoTodosPeriodos.onchange = ()=>{ extratoPeriodo.todos = extratoTodosPeriodos.checked; render(); };
+  const periodoMesSel = document.getElementById('periodoMes');
+  if(periodoMesSel) periodoMesSel.onchange = ()=>{ periodoGlobal.mes = parseInt(periodoMesSel.value); render(); };
+  const periodoAnoSel = document.getElementById('periodoAno');
+  if(periodoAnoSel) periodoAnoSel.onchange = ()=>{ periodoGlobal.ano = parseInt(periodoAnoSel.value); render(); };
+  const periodoTodosChk = document.getElementById('periodoTodos');
+  if(periodoTodosChk) periodoTodosChk.onchange = ()=>{ periodoGlobal.todos = periodoTodosChk.checked; render(); };
   const toggleCorrecaoSaldo = document.getElementById('toggleCorrecaoSaldo');
   if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; render(); };
   const excluirExtratoCompleto = document.getElementById('excluirExtratoCompleto');
@@ -3244,9 +3298,9 @@ function attachHandlers(){
       } else {
         state.transacoes.push({ id: uid(), contaId: extratoContaSel, obs:'', notaFiscalId:null, ...dados });
       }
-      if(!extratoPeriodo.todos){
+      if(!periodoGlobal.todos){
         const d = new Date(dados.data+'T00:00:00');
-        extratoPeriodo.mes = d.getMonth(); extratoPeriodo.ano = d.getFullYear();
+        periodoGlobal.mes = d.getMonth(); periodoGlobal.ano = d.getFullYear();
       }
       render(); saveState();
     };
@@ -3308,7 +3362,7 @@ function attachHandlers(){
         });
       });
       ofxPreview = null;
-      extratoPeriodo.todos = true;
+      periodoGlobal.todos = true;
       render(); saveState();
     };
   }
