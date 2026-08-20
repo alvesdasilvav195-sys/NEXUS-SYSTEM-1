@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Livro — ERP para prestação de serviços</title>
+<title>NEXUS SYSTEM — ERP para prestação de serviços</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -161,9 +161,9 @@
 <div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);">
   <div style="width:100%; max-width:340px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:28px 26px;">
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:22px;">
-      <div class="brand-mark" style="background:var(--accent);">L</div>
+      <div class="brand-mark" style="background:var(--accent);">N</div>
       <div>
-        <div class="display" style="font-size:17px;">Livro</div>
+        <div class="display" style="font-size:17px;">NEXUS SYSTEM</div>
         <div class="muted" style="font-size:11.5px;" id="loginTituloAcao">Entre para acessar o ERP</div>
       </div>
     </div>
@@ -178,10 +178,10 @@
 <datalist id="listaContatosDatalist"></datalist>
   <div class="sidebar">
     <div class="brand">
-      <div class="brand-mark">L</div>
+      <div class="brand-mark">N</div>
       <div>
         <div class="brand-name" id="empresaNomeSidebar">Minha Empresa</div>
-        <div class="brand-sub">Livro · ERP</div>
+        <div class="brand-sub">NEXUS SYSTEM</div>
       </div>
     </div>
     <div id="navContainer"></div>
@@ -1383,8 +1383,9 @@ function renderClientes(){
         <option value="perdido" ${edit&&edit.status==='perdido'?'selected':''}>Perdido</option>
       </select></div>
     </div>
-    <div class="form-grid" style="grid-template-columns:1fr 3fr; margin-top:2px;">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
       <div class="field"><label>Data do contato</label><input type="date" id="clData" value="${edit? edit.data : todayISO()}"></div>
+      <div class="field"><label>Vencimento da cota (opcional)</label><input type="date" id="clVencimentoCota" value="${edit? escAttr(edit.vencimentoCota||''):''}"></div>
       <div class="field"><label>Observações</label><input id="clObs" placeholder="Detalhes, motivo da perda, próximos passos..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoCliente" style="margin-top:6px;">Cancelar edição</button>` : ''}
@@ -1434,6 +1435,9 @@ function renderClientes(){
             <td class="muted" style="padding-left:0;">Administradora</td><td>${escHtml(c.admin||'—')}</td>
             <td class="muted">Data</td><td>${fmtDate(c.data)||'—'}</td>
           </tr>
+          ${c.vencimentoCota? `<tr>
+            <td class="muted" style="padding-left:0;">Vencimento da cota</td><td colspan="3">${fmtDate(c.vencimentoCota)}</td>
+          </tr>` : ''}
         </tbody></table>
         <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--line);">
           <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px;">Observações</div>
@@ -1573,6 +1577,10 @@ function eventosAgendaTodos(){
     id:c.id, data:c.proximoContato, tipoLabel:'Follow-up CRM', cor:'amber',
     titulo:`Falar com ${c.nome}` + (c.empresa? ' — '+c.empresa:''), origem:'crm'
   }));
+  state.clientes.filter(c=> c.vencimentoCota).forEach(c=> eventos.push({
+    id:c.id, data:c.vencimentoCota, tipoLabel:'Vencimento de cota', cor:'amber',
+    titulo:`${c.nome}` + (c.cota? ' — Cota '+c.cota:'') + (c.admin? ' — '+c.admin:''), origem:'consorciado'
+  }));
   return eventos.filter(e=>e.data).sort((a,b)=> a.data.localeCompare(b.data));
 }
 function eventosDoDia(dataISO){
@@ -1626,7 +1634,7 @@ function linhaEventoAgenda(ev){
       <button class="btn-ghost" data-concluir-agenda="${ev.id}">${ev.concluido? 'Reabrir' : 'Concluir'}</button>
       <button class="btn-ghost" data-editar-agenda="${ev.id}">Editar</button>
       <button class="btn-danger-ghost" data-del-agenda="${ev.id}">Excluir</button>
-    ` : `<span class="muted" style="font-size:11px;">via ${ev.origem==='pagar'?'Contas a pagar':ev.origem==='receber'?'Contas a receber':ev.origem==='crm'?'CRM':'Notas fiscais'}</span>`}
+    ` : `<span class="muted" style="font-size:11px;">via ${ev.origem==='pagar'?'Contas a pagar':ev.origem==='receber'?'Contas a receber':ev.origem==='crm'?'CRM':ev.origem==='consorciado'?'Consorciados':'Notas fiscais'}</span>`}
   </div>`;
 }
 
@@ -1735,11 +1743,11 @@ function talaoLineChart(data, cor){
   </svg>`;
 }
 let talaoSubTab = 'dashboard';
-let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0 };
+let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0, vencimentoCota:'' };
 let talaoFiltroAdm = 'Todas';
 let talaoFiltroStatus = 'Todos';
 function talaoCapturarForm(){
-  const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito' };
+  const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito', vencimentoCota:'talVencimentoCota' };
   Object.entries(campos).forEach(([campo,id])=>{
     const el = document.getElementById(id);
     if(el) talaoForm[campo] = el.value;
@@ -1846,10 +1854,11 @@ function renderTalaoLancar(){
         <div class="field"><label>Tipo de bem</label><select id="talTipoBem">${TALAO_TIPOS_BEM.map(t=>`<option value="${t}" ${talaoForm.tipoBem===t?'selected':''}>${t}</option>`).join('')}</select></div>
         <div class="field"><label>Valor do crédito (R$)</label><input class="num" type="number" min="0" id="talValorCredito" placeholder="0,00" value="${escAttr(talaoForm.valorCredito)}"></div>
       </div>
-      <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
         <div class="field"><label>Mês da 1ª parcela de comissão</label><select id="talMesInicial">
           ${Array.from({length:12}).map((_,i)=>`<option value="${i}" ${talaoForm.mesInicialIdx===i?'selected':''}>${talaoMesKey(i)}</option>`).join('')}
         </select></div>
+        <div class="field"><label>Vencimento da cota (opcional)</label><input type="date" id="talVencimentoCota" value="${escAttr(talaoForm.vencimentoCota)}"></div>
       </div>
       <button class="btn btn-primary" id="talaoLancarVenda" style="margin-top:12px;" ${preview.semTabela?'disabled':''}>Lançar venda</button>
     </div>
@@ -2437,6 +2446,8 @@ function attachHandlers(){
   if(talMesInicial) talMesInicial.onchange = ()=>{ talaoCapturarForm(); talaoForm.mesInicialIdx = parseInt(talMesInicial.value); render(); };
   const talTipoBem = document.getElementById('talTipoBem');
   if(talTipoBem) talTipoBem.onchange = ()=>{ talaoCapturarForm(); talaoForm.tipoBem = talTipoBem.value; render(); };
+  const talVencimentoCota = document.getElementById('talVencimentoCota');
+  if(talVencimentoCota) talVencimentoCota.onchange = ()=>{ talaoCapturarForm(); render(); };
   const talaoLancarVenda = document.getElementById('talaoLancarVenda');
   if(talaoLancarVenda){
     talaoLancarVenda.onclick = ()=>{
@@ -2459,6 +2470,7 @@ function attachHandlers(){
         valor: Number(talaoForm.valorCredito)||0,
         status: 'fechado',
         data: todayISO(),
+        vencimentoCota: talaoForm.vencimentoCota || '',
         obs: `Lançado via Talão de comissões — tabela "${preview.origem}" · comissão total ${fmtMoney(preview.total)}.`
       });
       state.talao.vendas.push({ id:vendaId, ...talaoForm, consorciadoId, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now() });
@@ -2469,7 +2481,7 @@ function attachHandlers(){
           status: 'A receber', numeroNF:'', contasReceberId:null
         });
       });
-      talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'' };
+      talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'', vencimentoCota:'' };
       talaoSubTab = 'parcelas';
       render(); saveState();
     };
@@ -3577,6 +3589,7 @@ function attachHandlers(){
         valor: parseFloat(document.getElementById('clValor').value)||0,
         status: document.getElementById('clStatus').value,
         data: document.getElementById('clData').value || todayISO(),
+        vencimentoCota: document.getElementById('clVencimentoCota').value || '',
         obs: document.getElementById('clObs').value.trim()
       };
       if(estadoEdicao.cliente){
