@@ -1640,6 +1640,10 @@ function linhaEventoAgenda(ev){
 
 /* ---------------- TALÃO DE COMISSÕES (consórcio) ---------------- */
 const TALAO_ADMS = ["Servopa", "Volks", "Embracon"];
+const TALAO_CHAVES_NAO_ADM = ['teto','piso','acelerador'];
+function talaoAdmsAtuais(){
+  return Object.keys(state.talao.rules).filter(k=> !TALAO_CHAVES_NAO_ADM.includes(k));
+}
 const TALAO_TIPOS_BEM = ["AUTO","IMÓVEL","MOTO","SERVIÇOS","PESADOS"];
 const TALAO_MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const TALAO_ANO_BASE = new Date().getFullYear();
@@ -1755,6 +1759,10 @@ function talaoCapturarForm(){
 }
 function renderTalao(){
   const rules = state.talao.rules;
+  if(!rules[talaoForm.adm]){
+    const primeiraAdm = talaoAdmsAtuais()[0];
+    talaoForm.adm = primeiraAdm || '';
+  }
   if(!talaoGetTabela(talaoForm.adm, talaoForm.tabelaId, rules)){
     const tabelas = (rules[talaoForm.adm] && rules[talaoForm.adm].tabelas) || [];
     talaoForm.tabelaId = tabelas[0] ? tabelas[0].id : '';
@@ -1782,7 +1790,7 @@ function renderTalaoDashboard(){
   const aReceber = parcelas.filter(p=>p.status==='A receber');
   const recebido = parcelas.filter(p=>p.status==='Recebido');
   const soma = arr=> arr.reduce((s,p)=>s+p.valor,0);
-  const porAdm = TALAO_ADMS.map(adm=> ({adm, valor: Math.round(parcelas.filter(p=>p.adm===adm).reduce((s,p)=>s+p.valor,0))}));
+  const porAdm = talaoAdmsAtuais().map(adm=> ({adm, valor: Math.round(parcelas.filter(p=>p.adm===adm).reduce((s,p)=>s+p.valor,0))}));
   const evolucaoMap = {};
   parcelas.forEach(p=>{ evolucaoMap[p.mes] = (evolucaoMap[p.mes]||0)+p.valor; });
   const idx = m=>{ const [mm,aa]=m.split('/'); return Number(aa)*12+TALAO_MESES.indexOf(mm); };
@@ -1826,6 +1834,10 @@ function talaoTicket(p){
 }
 function renderTalaoLancar(){
   const rules = state.talao.rules;
+  const admsExistentes = talaoAdmsAtuais();
+  if(admsExistentes.length===0){
+    return `<div class="card"><div class="empty">Nenhuma administradora cadastrada ainda. Vá até "Tabelas de comissão" e adicione uma antes de lançar uma venda.</div></div>`;
+  }
   const preview = talaoCalcularComissao(talaoForm, rules, state.talao.vendas);
   const tabelas = (rules[talaoForm.adm] && rules[talaoForm.adm].tabelas) || [];
   return `
@@ -1834,7 +1846,7 @@ function renderTalaoLancar(){
       <div class="card-head"><h2>Lançar venda</h2></div>
       <div class="form-grid" style="grid-template-columns:1fr 1fr;">
         <div class="field"><label>Cliente</label><input id="talCliente" placeholder="Nome do cliente" value="${escAttr(talaoForm.cliente)}"></div>
-        <div class="field"><label>Administradora</label><select id="talAdm">${TALAO_ADMS.map(a=>`<option value="${a}" ${talaoForm.adm===a?'selected':''}>${a}</option>`).join('')}</select></div>
+        <div class="field"><label>Administradora</label><select id="talAdm">${admsExistentes.map(a=>`<option value="${escAttr(a)}" ${talaoForm.adm===a?'selected':''}>${escHtml(a)}</option>`).join('')}</select></div>
       </div>
       <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
         <div class="field"><label>Tabela (${talaoForm.adm})</label><select id="talTabela">
@@ -1891,7 +1903,7 @@ function renderTalaoParcelas(){
     <div class="card-head"><h2>Parcelas de comissão</h2></div>
     <select id="talaoFiltroAdm" style="width:auto; display:inline-block;">
       <option ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
-      ${TALAO_ADMS.map(a=>`<option ${talaoFiltroAdm===a?'selected':''}>${a}</option>`).join('')}
+      ${talaoAdmsAtuais().map(a=>`<option value="${escAttr(a)}" ${talaoFiltroAdm===a?'selected':''}>${escHtml(a)}</option>`).join('')}
     </select>
     <select id="talaoFiltroStatus" style="width:auto; display:inline-block; margin-left:8px;">
       <option ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
@@ -1971,8 +1983,17 @@ function renderTalaoMeta(){
 }
 function renderTalaoRegras(){
   const rules = state.talao.rules;
+  const adms = talaoAdmsAtuais();
   return `
-  ${TALAO_ADMS.map(adm=>talaoTabelaManager(adm, rules[adm].tabelas)).join('')}
+  <div class="card">
+    <div class="card-head"><h2>Administradoras</h2></div>
+    <div class="hint" style="margin-bottom:10px;">Cada administradora tem seu próprio conjunto de tabelas de comissão. Adicione uma nova quando começar a trabalhar com uma administradora diferente.</div>
+    <div class="form-grid" style="grid-template-columns:1fr auto;">
+      <div class="field"><label>Nome da nova administradora</label><input id="talaoNovaAdmNome" placeholder="Ex: Rodobens, Canopus, HS..."></div>
+      <button class="btn btn-primary" id="talaoAddAdm">Adicionar administradora</button>
+    </div>
+  </div>
+  ${adms.map(adm=>talaoTabelaManager(adm, rules[adm].tabelas)).join('')}
   <div class="card">
     <div class="card-head"><h2>Teto e piso por venda</h2></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
@@ -1992,9 +2013,16 @@ function renderTalaoRegras(){
   </div>`;
 }
 function talaoTabelaManager(adm, tabelas){
+  const admAttr = escAttr(adm);
   return `
   <div class="card">
-    <div class="card-head"><h2>${adm} — tabelas</h2><button class="btn" data-talao-nova-tabela="${adm}">+ nova tabela</button></div>
+    <div class="card-head">
+      <h2>${escHtml(adm)} — tabelas</h2>
+      <div>
+        <button class="btn" data-talao-nova-tabela="${admAttr}">+ nova tabela</button>
+        <button class="btn-danger-ghost" data-talao-remover-adm="${admAttr}">Excluir administradora</button>
+      </div>
+    </div>
     <div class="hint" style="margin-bottom:10px;">Cada tabela tem sua própria % por parcela (não é taxa única dividida igualmente).</div>
     ${tabelas.length===0? '<div class="empty">Nenhuma tabela cadastrada ainda.</div>' : `
     <div style="display:flex; flex-direction:column; gap:12px;">
@@ -2002,20 +2030,20 @@ function talaoTabelaManager(adm, tabelas){
         const total = (t.percentuais||[]).reduce((s,p)=>s+(Number(p)||0),0);
         return `<div style="border:1px solid var(--line); border-radius:8px; padding:12px;">
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
-            <input data-talao-tabela-nome="${adm}:${t.id}" style="flex:1; font-weight:600;" value="${escAttr(t.nome)}" placeholder="Nome da tabela">
+            <input data-talao-tabela-nome="${admAttr}:${t.id}" style="flex:1; font-weight:600;" value="${escAttr(t.nome)}" placeholder="Nome da tabela">
             <span class="muted" style="font-size:12px; font-family:'IBM Plex Mono',monospace; white-space:nowrap;">total: ${total.toFixed(2)}%</span>
-            <button class="btn-danger-ghost" data-talao-remover-tabela="${adm}:${t.id}">Excluir</button>
+            <button class="btn-danger-ghost" data-talao-remover-tabela="${admAttr}:${t.id}">Excluir</button>
           </div>
           <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
             ${t.percentuais.map((pct,idx)=>`
               <div style="display:flex; align-items:center; gap:3px;">
                 <div style="display:flex; flex-direction:column; align-items:center;">
                   <span class="muted" style="font-size:9.5px;">${idx+1}ª</span>
-                  <input class="num" type="number" step="0.01" data-talao-parcela="${adm}:${t.id}:${idx}" value="${pct}" style="width:56px; padding:5px 6px; text-align:center;">
+                  <input class="num" type="number" step="0.01" data-talao-parcela="${admAttr}:${t.id}:${idx}" value="${pct}" style="width:56px; padding:5px 6px; text-align:center;">
                 </div>
-                <button data-talao-remover-parcela="${adm}:${t.id}:${idx}" style="background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:12px;">×</button>
+                <button data-talao-remover-parcela="${admAttr}:${t.id}:${idx}" style="background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:12px;">×</button>
               </div>`).join('')}
-            <button data-talao-add-parcela="${adm}:${t.id}" class="btn" style="font-size:11px; padding:5px 9px;">+ parcela</button>
+            <button data-talao-add-parcela="${admAttr}:${t.id}" class="btn" style="font-size:11px; padding:5px 9px;">+ parcela</button>
           </div>
         </div>`;
       }).join('')}
@@ -2047,6 +2075,9 @@ function renderCRM(){
       <div class="field"><label>Valor potencial</label><input class="num" type="number" step="0.01" id="crmValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
       <button class="btn btn-primary" id="addCrm">${edit? 'Salvar' : 'Adicionar'}</button>
     </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Observações</label><input id="crmObs" placeholder="Anotações gerais sobre este contato..." value="${edit? escAttr(edit.obs||''):''}"></div>
+    </div>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoCrm" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
@@ -2071,6 +2102,7 @@ function renderCRM(){
                 ${c.empresa? `<div class="muted" style="font-size:11.5px;">${escHtml(c.empresa)}</div>`:''}
                 ${c.valor? `<div class="num" style="font-size:12px; margin-top:4px;">${fmtMoney(c.valor)}</div>`:''}
                 ${c.proximoContato? `<div style="font-size:11px; margin-top:4px; color:${atrasado?'var(--danger)':'var(--ink-faint)'};">${atrasado?'Atrasado — ':'Follow-up: '}${fmtDate(c.proximoContato)}</div>`:''}
+                ${c.obs? `<div class="muted" style="font-size:11px; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escAttr(c.obs)}">📝 ${escHtml(c.obs)}</div>`:''}
               </div>`;
             }).join('')}
           </div>
@@ -2101,6 +2133,9 @@ function renderCrmDetalhe(c){
       <button class="btn" data-crm-limpar-followup="${c.id}" style="align-self:end;">Remover follow-up</button>
     </div>
     <div class="hint" style="margin-top:8px;">${escHtml(c.telefone||'—')} · ${escHtml(c.email||'—')}${c.empresa? ' · '+escHtml(c.empresa):''}</div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:10px;">
+      <div class="field"><label>Observações</label><textarea data-crm-obs="${c.id}" rows="2" placeholder="Anotações gerais sobre este contato..." style="width:100%; font-family:inherit; font-size:13px; padding:8px 10px; border:1px solid var(--line-strong); border-radius:8px; resize:vertical;">${escHtml(c.obs||'')}</textarea></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-head"><h2>Registrar interação</h2></div>
@@ -2536,6 +2571,30 @@ function attachHandlers(){
   const talaoFiltroStatusSel = document.getElementById('talaoFiltroStatus');
   if(talaoFiltroStatusSel) talaoFiltroStatusSel.onchange = ()=>{ talaoFiltroStatus = talaoFiltroStatusSel.value; render(); };
 
+  const talaoAddAdm = document.getElementById('talaoAddAdm');
+  if(talaoAddAdm){
+    talaoAddAdm.onclick = ()=>{
+      const nomeInput = document.getElementById('talaoNovaAdmNome');
+      const nome = nomeInput.value.trim();
+      if(!nome){ nomeInput.focus(); return; }
+      if(state.talao.rules[nome]){ alert('Já existe uma administradora com esse nome.'); return; }
+      state.talao.rules[nome] = { tabelas: [] };
+      if(!talaoForm.adm) talaoForm.adm = nome;
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-talao-remover-adm]').forEach(b=> b.onclick = ()=>{
+    const adm = b.dataset.talaoRemoverAdm;
+    const emUso = state.talao.vendas.some(v=>v.adm===adm) || state.talao.parcelas.some(p=>p.adm===adm);
+    const msg = emUso
+      ? `Essa administradora já tem vendas ou parcelas lançadas. Se excluir, esses registros continuam existindo, mas a administradora some da lista de opções. Deseja continuar?`
+      : `Excluir a administradora "${adm}" e todas as suas tabelas de comissão?`;
+    if(!confirm(msg)) return;
+    delete state.talao.rules[adm];
+    if(talaoForm.adm===adm) talaoForm.adm = talaoAdmsAtuais()[0] || '';
+    if(talaoFiltroAdm===adm) talaoFiltroAdm = 'Todas';
+    render(); saveState();
+  });
   document.querySelectorAll('[data-talao-nova-tabela]').forEach(b=> b.onclick = ()=>{
     const adm = b.dataset.talaoNovaTabela;
     state.talao.rules[adm].tabelas.push({ id: uid(), nome:'', percentuais:[0,0,0,0] });
@@ -2976,7 +3035,8 @@ function attachHandlers(){
         empresa: document.getElementById('crmEmpresa').value.trim(),
         telefone: document.getElementById('crmTelefone').value.trim(),
         email: document.getElementById('crmEmail').value.trim(),
-        valor: parseFloat(document.getElementById('crmValor').value)||0
+        valor: parseFloat(document.getElementById('crmValor').value)||0,
+        obs: document.getElementById('crmObs').value.trim()
       };
       if(estadoEdicao.crm){
         const item = state.crm.find(c=>c.id===estadoEdicao.crm);
@@ -3025,6 +3085,10 @@ function attachHandlers(){
   document.querySelectorAll('[data-crm-limpar-followup]').forEach(b=> b.onclick = ()=>{
     const c = state.crm.find(c=>c.id===b.dataset.crmLimparFollowup);
     if(c){ c.proximoContato = null; render(); saveState(); }
+  });
+  document.querySelectorAll('[data-crm-obs]').forEach(txt=> txt.onchange = ()=>{
+    const c = state.crm.find(c=>c.id===txt.dataset.crmObs);
+    if(c){ c.obs = txt.value.trim(); render(); saveState(); }
   });
   document.querySelectorAll('[data-crm-add-interacao]').forEach(b=> b.onclick = ()=>{
     const c = state.crm.find(c=>c.id===b.dataset.crmAddInteracao);
