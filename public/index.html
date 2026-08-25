@@ -105,6 +105,22 @@
   .dia-acordeao > summary .chev{ font-size:10px; color:var(--ink-faint); transition:transform .15s ease; flex-shrink:0; }
   .dia-acordeao[open] > summary .chev{ transform:rotate(90deg); }
   .dia-acordeao[open]{ padding-bottom:12px; }
+  .kanban-board{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; align-items:start; }
+  .kanban-col{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .kanban-col.drag-over{ background:var(--accent-soft); border-color:var(--accent); }
+  .kanban-col-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+  .kanban-col-title{ font-size:12.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; display:flex; align-items:center; gap:7px; color:var(--ink-soft); }
+  .kanban-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+  .kanban-cards{ display:flex; flex-direction:column; gap:9px; min-height:40px; margin-bottom:12px; }
+  .kanban-card{ background:var(--bg); border:1px solid var(--line); border-left:3px solid var(--ink-faint); border-radius:7px; padding:9px 30px 9px 11px; font-size:13px; line-height:1.45; cursor:grab; position:relative; }
+  .kanban-card.dragging{ opacity:.35; }
+  .kanban-card .kanban-text{ white-space:pre-wrap; word-break:break-word; outline:none; }
+  .kanban-card .kanban-text:focus{ background:var(--surface); border-radius:4px; margin:-2px -4px; padding:2px 4px; }
+  .kanban-card-del{ position:absolute; top:6px; right:6px; width:18px; height:18px; border:none; background:transparent; color:var(--ink-faint); font-size:13px; line-height:1; cursor:pointer; }
+  .kanban-card-del:hover{ color:var(--danger); }
+  .kanban-add textarea{ width:100%; font-family:inherit; font-size:12.5px; padding:8px 10px; border:1px dashed var(--line-strong); border-radius:7px; background:transparent; resize:vertical; color:var(--ink); }
+  .kanban-add textarea:focus{ outline:none; border-color:var(--accent); border-style:solid; background:var(--surface); }
+  .kanban-add button{ margin-top:6px; }
   th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line-strong);}
   td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
   tr:last-child td{ border-bottom:none;}
@@ -343,6 +359,7 @@ let state = {
   cartaoLancamentos: [],
   emprestimos: [],
   talao: { vendas: [], parcelas: [], rules: {}, metas: {} },
+  kanban: { todo: [], doing: [], done: [] },
   categoriasDre: []
 };
 
@@ -386,6 +403,8 @@ async function loadState(){
   if(!state.emprestimos) state.emprestimos = [];
   if(!state.talao) state.talao = { vendas:[], parcelas:[], rules: JSON.parse(JSON.stringify(TALAO_RULES_PADRAO)), metas:{} };
   if(!state.talao.metas) state.talao.metas = {};
+  if(!state.kanban) state.kanban = { todo: [], doing: [], done: [] };
+  ['todo','doing','done'].forEach(c=>{ if(!Array.isArray(state.kanban[c])) state.kanban[c] = []; });
   if(!state.talao.vendas) state.talao.vendas = [];
   if(!state.talao.parcelas) state.talao.parcelas = [];
   if(!state.talao.rules || !state.talao.rules.Servopa) state.talao.rules = JSON.parse(JSON.stringify(TALAO_RULES_PADRAO));
@@ -475,6 +494,7 @@ function totalReceitasDespesasGeral(){
 const TITLES = {
   dashboard:['Dashboard','Visão geral da sua empresa de serviços'],
   agenda:['Agenda','O que precisa ser feito, dia a dia'],
+  kanban:['Quadro de tarefas','Organize tarefas arrastando entre colunas'],
   contas:['Contas bancárias','Cadastre as contas usadas pela empresa'],
   extrato:['Extrato bancário','Lançamentos de entrada e saída por conta'],
   apagarreceber:['Contas a pagar/receber','Controle de vencimentos e pagamentos pendentes'],
@@ -499,6 +519,7 @@ let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
   {tipo:'item', tab:'agenda', label:'Agenda'},
+  {tipo:'item', tab:'kanban', label:'Quadro de tarefas'},
   {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
     {tab:'crm', label:'CRM'},
     {tab:'talao', label:'Talão de comissões'},
@@ -569,6 +590,7 @@ function render(){
   atualizarDatalistContatos();
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
+  if(activeTab==='kanban') view.innerHTML = renderKanban();
   if(activeTab==='crm') view.innerHTML = renderCRM();
   if(activeTab==='talao') view.innerHTML = renderTalao();
   if(activeTab==='faturas') view.innerHTML = renderFaturas();
@@ -2057,6 +2079,47 @@ function talaoTabelaManager(adm, tabelas){
   </div>`;
 }
 
+/* ---------------- QUADRO DE TAREFAS (Kanban) ---------------- */
+const KANBAN_COLS = [
+  {id:'todo', label:'A fazer', dot:'var(--ink-faint)'},
+  {id:'doing', label:'Em andamento', dot:'var(--warn)'},
+  {id:'done', label:'Concluído', dot:'var(--accent)'}
+];
+let kanbanDraggedId = null;
+function kanbanEncontrarCard(id){
+  for(const col of KANBAN_COLS){
+    const idx = state.kanban[col.id].findIndex(c=>c.id===id);
+    if(idx!==-1) return { col:col.id, idx };
+  }
+  return null;
+}
+function renderKanban(){
+  return `
+  <div class="kanban-board">
+    ${KANBAN_COLS.map(col=>{
+      const cards = state.kanban[col.id];
+      return `
+      <div class="kanban-col" data-kanban-col="${col.id}">
+        <div class="kanban-col-head">
+          <span class="kanban-col-title"><span class="kanban-dot" style="background:${col.dot};"></span>${col.label}</span>
+          <span class="badge-count">${cards.length}</span>
+        </div>
+        <div class="kanban-cards">
+          ${cards.map(c=>`
+            <div class="kanban-card" draggable="true" data-kanban-card="${c.id}">
+              <div class="kanban-text" contenteditable="true" data-kanban-texto="${c.id}">${escHtml(c.text)}</div>
+              <button class="kanban-card-del" data-kanban-del="${c.id}" title="Excluir">✕</button>
+            </div>`).join('')}
+        </div>
+        <div class="kanban-add">
+          <textarea rows="2" placeholder="Nova tarefa..." data-kanban-input="${col.id}"></textarea>
+          <button class="btn" data-kanban-add="${col.id}">Adicionar</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 /* ---------------- CRM ---------------- */
 const CRM_ETAPAS = [
   {id:'lead', label:'Novo lead', cor:'gray'},
@@ -2474,6 +2537,86 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
+  document.querySelectorAll('[data-kanban-card]').forEach(el=>{
+    el.addEventListener('dragstart', ()=>{
+      kanbanDraggedId = el.dataset.kanbanCard;
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', ()=>{
+      el.classList.remove('dragging');
+      kanbanDraggedId = null;
+    });
+  });
+  document.querySelectorAll('[data-kanban-col]').forEach(colEl=>{
+    colEl.addEventListener('dragover', e=>{ e.preventDefault(); colEl.classList.add('drag-over'); });
+    colEl.addEventListener('dragleave', ()=> colEl.classList.remove('drag-over'));
+    colEl.addEventListener('drop', e=>{
+      e.preventDefault();
+      colEl.classList.remove('drag-over');
+      if(!kanbanDraggedId) return;
+      const achado = kanbanEncontrarCard(kanbanDraggedId);
+      if(!achado) return;
+      const destino = colEl.dataset.kanbanCol;
+      const [movido] = state.kanban[achado.col].splice(achado.idx, 1);
+      let indiceInsercao = state.kanban[destino].length;
+      const cardsContainer = colEl.querySelector('.kanban-cards');
+      const cardDepois = [...cardsContainer.querySelectorAll('.kanban-card')].find(c=>{
+        const rect = c.getBoundingClientRect();
+        return e.clientY < rect.top + rect.height/2;
+      });
+      if(cardDepois){
+        const idxDepois = state.kanban[destino].findIndex(c=>c.id===cardDepois.dataset.kanbanCard);
+        if(idxDepois!==-1) indiceInsercao = idxDepois;
+      }
+      state.kanban[destino].splice(indiceInsercao, 0, movido);
+      render(); saveState();
+    });
+  });
+  document.querySelectorAll('[data-kanban-texto]').forEach(txt=>{
+    txt.addEventListener('blur', ()=>{
+      const achado = kanbanEncontrarCard(txt.dataset.kanbanTexto);
+      if(!achado) return;
+      const valor = txt.textContent.trim();
+      if(!valor){
+        state.kanban[achado.col].splice(achado.idx, 1);
+        render(); saveState();
+        return;
+      }
+      state.kanban[achado.col][achado.idx].text = valor;
+      saveState();
+    });
+    txt.addEventListener('keydown', e=>{
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); txt.blur(); }
+    });
+  });
+  document.querySelectorAll('[data-kanban-del]').forEach(b=> b.onclick = ()=>{
+    const achado = kanbanEncontrarCard(b.dataset.kanbanDel);
+    if(!achado) return;
+    state.kanban[achado.col].splice(achado.idx, 1);
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-kanban-add]').forEach(b=> b.onclick = ()=>{
+    const col = b.dataset.kanbanAdd;
+    const input = document.querySelector(`[data-kanban-input="${col}"]`);
+    const valor = input.value.trim();
+    if(!valor) return;
+    state.kanban[col].push({ id: uid(), text: valor });
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-kanban-input]').forEach(input=>{
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter' && !e.shiftKey){
+        e.preventDefault();
+        const col = input.dataset.kanbanInput;
+        const valor = input.value.trim();
+        if(!valor) return;
+        state.kanban[col].push({ id: uid(), text: valor });
+        render(); saveState();
+      }
+    });
+  });
+
+
   document.querySelectorAll('[data-talao-tab]').forEach(b=> b.onclick = ()=>{
     talaoSubTab = b.dataset.talaoTab; render();
   });
