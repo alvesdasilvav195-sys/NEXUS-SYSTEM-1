@@ -1772,6 +1772,7 @@ let talaoSubTab = 'dashboard';
 let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0, vencimentoCota:'' };
 let talaoFiltroAdm = 'Todas';
 let talaoFiltroStatus = 'Todos';
+let talaoFiltroMes = 'Todos';
 function talaoCapturarForm(){
   const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito', vencimentoCota:'talVencimentoCota' };
   Object.entries(campos).forEach(([campo,id])=>{
@@ -1809,7 +1810,7 @@ function renderTalao(){
 }
 function renderTalaoDashboard(){
   const parcelas = state.talao.parcelas;
-  const aReceber = parcelas.filter(p=>p.status==='A receber');
+  const aReceber = parcelas.filter(p=>p.status!=='Recebido');
   const recebido = parcelas.filter(p=>p.status==='Recebido');
   const soma = arr=> arr.reduce((s,p)=>s+p.valor,0);
   const porAdm = talaoAdmsAtuais().map(adm=> ({adm, valor: Math.round(parcelas.filter(p=>p.adm===adm).reduce((s,p)=>s+p.valor,0))}));
@@ -1817,7 +1818,7 @@ function renderTalaoDashboard(){
   parcelas.forEach(p=>{ evolucaoMap[p.mes] = (evolucaoMap[p.mes]||0)+p.valor; });
   const idx = m=>{ const [mm,aa]=m.split('/'); return Number(aa)*12+TALAO_MESES.indexOf(mm); };
   const evolucao = Object.entries(evolucaoMap).sort((a,b)=>idx(a[0])-idx(b[0])).map(([mes,valor])=>({mes, valor:Math.round(valor)}));
-  const proximos = parcelas.filter(p=>p.status==='A receber').sort((a,b)=>a.idx-b.idx).slice(0,6);
+  const proximos = parcelas.filter(p=>p.status!=='Recebido').sort((a,b)=>a.idx-b.idx).slice(0,6);
   return `
   <div class="kpi-grid">
     <div class="kpi"><div class="label">A receber</div><div class="value">${fmtMoney(soma(aReceber))}</div><div class="hint">${aReceber.length} parcelas</div></div>
@@ -1842,21 +1843,41 @@ function renderTalaoDashboard(){
     </div>`}
   </div>`;
 }
+let talaoParcelaEditandoMes = null;
+function talaoOpcoesMes(){
+  const opts = [];
+  for(let i=-12;i<=48;i++) opts.push(i);
+  return opts;
+}
 function talaoTicket(p){
-  const dataRecebimentoExibida = p.dataRecebimento || (p.contasReceberId && (state.contasReceber.find(c=>c.id===p.contasReceberId)||{}).vencimento) || '';
+  const pill = p.status==='Recebido'?'green':p.status==='Faturado NF'?'amber':'gray';
+  const editandoMes = talaoParcelaEditandoMes===p.id;
   return `<div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 14px; flex-wrap:wrap; gap:8px;">
     <div style="min-width:0;">
       <div style="font-size:13.5px; font-weight:500;">${escHtml(p.cliente)}</div>
-      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace;">${escHtml(p.adm)} · ${p.tabela? escHtml(p.tabela)+' · ':''}${p.mes} · Cota ${escHtml(p.cota||'—')}${p.numeroNF? ` · NF ${escHtml(p.numeroNF)}`:''}</div>
+      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        <span>${escHtml(p.adm)} · ${p.tabela? escHtml(p.tabela)+' · ':''}Cota ${escHtml(p.cota||'—')}${p.numeroNF? ` · NF ${escHtml(p.numeroNF)}`:''}</span>
+        ${editandoMes? `
+          <select data-talao-novo-mes-select="${p.id}" style="width:auto; padding:2px 5px; font-size:11px;">
+            ${talaoOpcoesMes().map(i=>`<option value="${i}" ${i===p.idx?'selected':''}>${talaoMesKey(i)}</option>`).join('')}
+          </select>
+          <button data-talao-salvar-mes="${p.id}" class="btn-ghost" style="padding:1px 6px; font-size:11px;">Salvar</button>
+          <button data-talao-cancelar-mes class="btn-ghost" style="padding:1px 6px; font-size:11px;">Cancelar</button>
+        ` : `<span>· ${p.mes}</span><button data-talao-editar-mes="${p.id}" class="btn-ghost" style="padding:1px 6px; font-size:11px;">alterar mês</button>`}
+      </div>
     </div>
-    <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
-      ${p.status==='Recebido'? `
-      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:1px;">
-        <span class="muted" style="font-size:10px;">Recebido em</span>
-        <input type="date" data-talao-data-recebimento="${p.id}" value="${dataRecebimentoExibida}" style="width:auto; padding:3px 6px; font-size:11.5px;">
-      </div>` : ''}
+    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; flex-wrap:wrap;">
       <span class="num" style="font-weight:600;">${fmtMoney(p.valor)}</span>
-      <button data-talao-toggle-parcela="${p.id}" class="pill ${p.status==='Recebido'?'green':'amber'}" style="border:none; cursor:pointer;" title="${p.status==='Recebido'? 'Clique para estornar este recebimento' : 'Clique para marcar como recebido'}">${p.status}</button>
+      <span class="pill ${pill}">${p.status}</span>
+      ${p.status==='A receber'? `<button data-talao-faturar="${p.id}" class="btn-ghost" style="font-size:11.5px;">Faturar (informar NF)</button>` : ''}
+      ${p.status==='Faturado NF'? `
+        <select data-talao-conta-recebimento="${p.id}" style="width:auto; padding:4px 6px; font-size:11.5px;">
+          ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+        </select>
+        <button data-talao-confirmar-recebimento="${p.id}" class="btn-ghost" style="font-size:11.5px;">Confirmar recebimento</button>
+        <button data-talao-cancelar-fatura="${p.id}" class="btn-danger-ghost" style="font-size:11.5px;">Cancelar fatura</button>
+      ` : ''}
+      ${p.status==='Recebido'? `<button data-talao-estornar-recebimento="${p.id}" class="btn-ghost" style="font-size:11.5px;">Estornar recebimento</button>` : ''}
     </div>
   </div>`;
 }
@@ -1922,23 +1943,37 @@ function renderTalaoLancar(){
   </div>`;
 }
 function renderTalaoParcelas(){
+  const mesesDisponiveis = Array.from(new Set(state.talao.parcelas.map(p=>p.mes)))
+    .sort((a,b)=>{
+      const idxA = (state.talao.parcelas.find(p=>p.mes===a)||{}).idx||0;
+      const idxB = (state.talao.parcelas.find(p=>p.mes===b)||{}).idx||0;
+      return idxA-idxB;
+    });
   const parcelas = state.talao.parcelas
     .filter(p=> talaoFiltroAdm==='Todas' || p.adm===talaoFiltroAdm)
     .filter(p=> talaoFiltroStatus==='Todos' || p.status===talaoFiltroStatus)
+    .filter(p=> talaoFiltroMes==='Todos' || p.mes===talaoFiltroMes)
     .sort((a,b)=>b.idx-a.idx);
   return `
   <div class="card">
     <div class="card-head"><h2>Parcelas de comissão</h2></div>
-    <select id="talaoFiltroAdm" style="width:auto; display:inline-block;">
-      <option ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
-      ${talaoAdmsAtuais().map(a=>`<option value="${escAttr(a)}" ${talaoFiltroAdm===a?'selected':''}>${escHtml(a)}</option>`).join('')}
-    </select>
-    <select id="talaoFiltroStatus" style="width:auto; display:inline-block; margin-left:8px;">
-      <option ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
-      <option ${talaoFiltroStatus==='A receber'?'selected':''}>A receber</option>
-      <option ${talaoFiltroStatus==='Recebido'?'selected':''}>Recebido</option>
-    </select>
-    <span class="hint" style="margin-left:10px;">${parcelas.length} parcela(s) · ${fmtMoney(parcelas.reduce((s,p)=>s+p.valor,0))}</span>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <select id="talaoFiltroAdm" style="width:auto;">
+        <option ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
+        ${talaoAdmsAtuais().map(a=>`<option value="${escAttr(a)}" ${talaoFiltroAdm===a?'selected':''}>${escHtml(a)}</option>`).join('')}
+      </select>
+      <select id="talaoFiltroStatus" style="width:auto;">
+        <option ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
+        <option ${talaoFiltroStatus==='Recebido'?'selected':''}>Recebido</option>
+        <option ${talaoFiltroStatus==='A receber'?'selected':''}>A receber</option>
+        <option value="Faturado NF" ${talaoFiltroStatus==='Faturado NF'?'selected':''}>Faturado NF</option>
+      </select>
+      <select id="talaoFiltroMes" style="width:auto;">
+        <option ${talaoFiltroMes==='Todos'?'selected':''}>Todos os meses</option>
+        ${mesesDisponiveis.map(m=>`<option value="${escAttr(m)}" ${talaoFiltroMes===m?'selected':''}>${escHtml(m)}</option>`).join('')}
+      </select>
+      <span class="hint">${parcelas.length} parcela(s) · ${fmtMoney(parcelas.reduce((s,p)=>s+p.valor,0))}</span>
+    </div>
   </div>
   <div class="card">
     ${parcelas.length===0? '<div class="empty">Nenhuma parcela encontrada com esses filtros.</div>' : `
@@ -2670,74 +2705,109 @@ function attachHandlers(){
       render(); saveState();
     };
   }
-  document.querySelectorAll('[data-talao-data-recebimento]').forEach(inp=> inp.onchange = ()=>{
-    const p = state.talao.parcelas.find(p=>p.id===inp.dataset.talaoDataRecebimento);
+  document.querySelectorAll('[data-talao-editar-mes]').forEach(b=> b.onclick = ()=>{
+    talaoParcelaEditandoMes = b.dataset.talaoEditarMes; render();
+  });
+  document.querySelectorAll('[data-talao-cancelar-mes]').forEach(b=> b.onclick = ()=>{
+    talaoParcelaEditandoMes = null; render();
+  });
+  document.querySelectorAll('[data-talao-salvar-mes]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoSalvarMes);
+    const sel = document.querySelector(`[data-talao-novo-mes-select="${b.dataset.talaoSalvarMes}"]`);
+    if(p && sel){
+      p.idx = parseInt(sel.value);
+      p.mes = talaoMesKey(p.idx);
+    }
+    talaoParcelaEditandoMes = null;
+    render(); saveState();
+  });
+
+  document.querySelectorAll('[data-talao-faturar]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoFaturar);
     if(!p) return;
-    const novaData = inp.value;
-    if(!novaData) return;
-    p.dataRecebimento = novaData;
+    const nf = prompt('Número da Nota Fiscal desta comissão (deixe em branco se ainda não tiver):', p.numeroNF||'');
+    if(nf===null) return;
+    p.status = 'Faturado NF';
+    p.numeroNF = nf.trim();
+    const crId = uid();
+    state.contasReceber.push({
+      id: crId,
+      descricao: `Comissão consórcio — ${p.cliente} (${p.adm} · ${p.mes})` + (nf.trim()? ` — NF ${nf.trim()}` : ''),
+      parte: p.cliente,
+      valor: p.valor,
+      vencimento: todayISO(),
+      categoria: 'receita_servicos',
+      status: 'pendente',
+      obs: nf.trim()? `Nota fiscal: ${nf.trim()} · Parcela do Talão de comissões.` : 'Parcela do Talão de comissões.'
+    });
+    p.contasReceberId = crId;
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-talao-cancelar-fatura]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoCancelarFatura);
+    if(!p) return;
+    if(!confirm('Cancelar esta fatura? O lançamento pendente em Contas a receber será removido, e a parcela volta para "A receber".')) return;
+    if(p.contasReceberId){
+      state.contasReceber = state.contasReceber.filter(c=>c.id!==p.contasReceberId);
+    }
+    p.status = 'A receber';
+    p.contasReceberId = null;
+    p.numeroNF = '';
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-talao-confirmar-recebimento]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoConfirmarRecebimento);
+    if(!p || !p.contasReceberId) return;
+    const cr = state.contasReceber.find(c=>c.id===p.contasReceberId);
+    if(!cr) return;
+    const sel = document.querySelector(`[data-talao-conta-recebimento="${p.id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
+    cr.status = 'pago';
+    cr.contaId = contaId;
+    cr.dataPagamento = todayISO();
+    const novaTxId = uid();
+    cr.transacaoId = novaTxId;
+    state.transacoes.push({
+      id: novaTxId, contaId, data: todayISO(),
+      descricao: 'Recebimento: ' + cr.descricao,
+      tipo: 'credito', valor: cr.valor, categoria: cr.categoria
+    });
+    p.status = 'Recebido';
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-talao-estornar-recebimento]').forEach(b=> b.onclick = ()=>{
+    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoEstornarRecebimento);
+    if(!p) return;
+    if(!confirm('Estornar o recebimento desta parcela? Isso cria um estorno no extrato bancário e a parcela volta para "Faturado NF" (a nota fiscal continua registrada).')) return;
     if(p.contasReceberId){
       const cr = state.contasReceber.find(c=>c.id===p.contasReceberId);
-      if(cr){
-        cr.vencimento = novaData;
-        if(cr.status==='pago'){
-          alert('Esta parcela já foi baixada em Contas a receber. A data aqui foi atualizada para referência, mas o lançamento bancário já registrado mantém a data em que foi confirmado. Se precisar corrigir isso também, ajuste em Contas a receber.');
+      if(cr && cr.status==='pago' && cr.transacaoId){
+        const original = state.transacoes.find(t=>t.id===cr.transacaoId);
+        if(original && !original.estornado){
+          original.estornado = true;
+          state.transacoes.push({
+            id: uid(), contaId: original.contaId, data: todayISO(),
+            descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
+            valor: original.valor, categoria: original.categoria, estornoDe: original.id
+          });
         }
+        cr.status = 'pendente';
+        cr.contaId = null;
+        cr.dataPagamento = null;
+        cr.transacaoId = null;
       }
     }
+    p.status = 'Faturado NF';
     render(); saveState();
   });
-  document.querySelectorAll('[data-talao-toggle-parcela]').forEach(b=> b.onclick = ()=>{
-    const p = state.talao.parcelas.find(p=>p.id===b.dataset.talaoToggleParcela);
-    if(!p) return;
-    if(p.status==='A receber'){
-      const nf = prompt('Número da Nota Fiscal referente a este recebimento (deixe em branco se não tiver):', p.numeroNF||'');
-      if(nf===null) return;
-      p.status = 'Recebido';
-      p.numeroNF = nf.trim();
-      p.dataRecebimento = todayISO();
-      const crId = uid();
-      state.contasReceber.push({
-        id: crId,
-        descricao: `Comissão consórcio — ${p.cliente} (${p.adm} · ${p.mes})` + (nf.trim()? ` — NF ${nf.trim()}` : ''),
-        parte: p.cliente,
-        valor: p.valor,
-        vencimento: p.dataRecebimento,
-        categoria: 'receita_servicos',
-        status: 'pendente',
-        obs: nf.trim()? `Nota fiscal: ${nf.trim()} · Parcela do Talão de comissões.` : 'Parcela do Talão de comissões.'
-      });
-      p.contasReceberId = crId;
-    } else {
-      if(!confirm('Estornar o recebimento desta parcela? Isso remove (ou estorna, se já tiver sido baixada) o lançamento correspondente em Contas a receber, e a parcela volta para "A receber".')) return;
-      if(p.contasReceberId){
-        const cr = state.contasReceber.find(c=>c.id===p.contasReceberId);
-        if(cr){
-          if(cr.status==='pago' && cr.transacaoId){
-            const original = state.transacoes.find(t=>t.id===cr.transacaoId);
-            if(original && !original.estornado){
-              original.estornado = true;
-              state.transacoes.push({
-                id: uid(), contaId: original.contaId, data: todayISO(),
-                descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
-                valor: original.valor, categoria: original.categoria, estornoDe: original.id
-              });
-            }
-          }
-          state.contasReceber = state.contasReceber.filter(c=>c.id!==cr.id);
-        }
-      }
-      p.status = 'A receber';
-      p.contasReceberId = null;
-      p.numeroNF = '';
-      p.dataRecebimento = '';
-    }
-    render(); saveState();
-  });
+
   const talaoFiltroAdmSel = document.getElementById('talaoFiltroAdm');
   if(talaoFiltroAdmSel) talaoFiltroAdmSel.onchange = ()=>{ talaoFiltroAdm = talaoFiltroAdmSel.value; render(); };
   const talaoFiltroStatusSel = document.getElementById('talaoFiltroStatus');
   if(talaoFiltroStatusSel) talaoFiltroStatusSel.onchange = ()=>{ talaoFiltroStatus = talaoFiltroStatusSel.value; render(); };
+  const talaoFiltroMesSel = document.getElementById('talaoFiltroMes');
+  if(talaoFiltroMesSel) talaoFiltroMesSel.onchange = ()=>{ talaoFiltroMes = talaoFiltroMesSel.value; render(); };
 
   const talaoAddAdm = document.getElementById('talaoAddAdm');
   if(talaoAddAdm){
