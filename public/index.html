@@ -105,22 +105,6 @@
   .dia-acordeao > summary .chev{ font-size:10px; color:var(--ink-faint); transition:transform .15s ease; flex-shrink:0; }
   .dia-acordeao[open] > summary .chev{ transform:rotate(90deg); }
   .dia-acordeao[open]{ padding-bottom:12px; }
-  .kanban-board{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; align-items:start; }
-  .kanban-col{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px; }
-  .kanban-col.drag-over{ background:var(--accent-soft); border-color:var(--accent); }
-  .kanban-col-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid var(--line); }
-  .kanban-col-title{ font-size:12.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; display:flex; align-items:center; gap:7px; color:var(--ink-soft); }
-  .kanban-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
-  .kanban-cards{ display:flex; flex-direction:column; gap:9px; min-height:40px; margin-bottom:12px; }
-  .kanban-card{ background:var(--bg); border:1px solid var(--line); border-left:3px solid var(--ink-faint); border-radius:7px; padding:9px 30px 9px 11px; font-size:13px; line-height:1.45; cursor:grab; position:relative; }
-  .kanban-card.dragging{ opacity:.35; }
-  .kanban-card .kanban-text{ white-space:pre-wrap; word-break:break-word; outline:none; }
-  .kanban-card .kanban-text:focus{ background:var(--surface); border-radius:4px; margin:-2px -4px; padding:2px 4px; }
-  .kanban-card-del{ position:absolute; top:6px; right:6px; width:18px; height:18px; border:none; background:transparent; color:var(--ink-faint); font-size:13px; line-height:1; cursor:pointer; }
-  .kanban-card-del:hover{ color:var(--danger); }
-  .kanban-add textarea{ width:100%; font-family:inherit; font-size:12.5px; padding:8px 10px; border:1px dashed var(--line-strong); border-radius:7px; background:transparent; resize:vertical; color:var(--ink); }
-  .kanban-add textarea:focus{ outline:none; border-color:var(--accent); border-style:solid; background:var(--surface); }
-  .kanban-add button{ margin-top:6px; }
   th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--line-strong);}
   td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle;}
   tr:last-child td{ border-bottom:none;}
@@ -357,9 +341,9 @@ let state = {
   proLabore: [],
   cartoes: [],
   cartaoLancamentos: [],
+  boletos: [],
   emprestimos: [],
   talao: { vendas: [], parcelas: [], rules: {}, metas: {} },
-  kanban: { todo: [], doing: [], done: [] },
   categoriasDre: []
 };
 
@@ -400,11 +384,10 @@ async function loadState(){
   if(!state.proLabore) state.proLabore = [];
   if(!state.cartoes) state.cartoes = [];
   if(!state.cartaoLancamentos) state.cartaoLancamentos = [];
+  if(!state.boletos) state.boletos = [];
   if(!state.emprestimos) state.emprestimos = [];
   if(!state.talao) state.talao = { vendas:[], parcelas:[], rules: JSON.parse(JSON.stringify(TALAO_RULES_PADRAO)), metas:{} };
   if(!state.talao.metas) state.talao.metas = {};
-  if(!state.kanban) state.kanban = { todo: [], doing: [], done: [] };
-  ['todo','doing','done'].forEach(c=>{ if(!Array.isArray(state.kanban[c])) state.kanban[c] = []; });
   if(!state.talao.vendas) state.talao.vendas = [];
   if(!state.talao.parcelas) state.talao.parcelas = [];
   if(!state.talao.rules || !state.talao.rules.Servopa) state.talao.rules = JSON.parse(JSON.stringify(TALAO_RULES_PADRAO));
@@ -494,7 +477,6 @@ function totalReceitasDespesasGeral(){
 const TITLES = {
   dashboard:['Dashboard','Visão geral da sua empresa de serviços'],
   agenda:['Agenda','O que precisa ser feito, dia a dia'],
-  kanban:['Quadro de tarefas','Organize tarefas arrastando entre colunas'],
   contas:['Contas bancárias','Cadastre as contas usadas pela empresa'],
   extrato:['Extrato bancário','Lançamentos de entrada e saída por conta'],
   apagarreceber:['Contas a pagar/receber','Controle de vencimentos e pagamentos pendentes'],
@@ -511,15 +493,15 @@ const TITLES = {
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
   cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
   prolabore:['Pró-labore','Gere a folha de pró-labore em PDF'],
+  boletos:['Boletos','Controle de boletos dos clientes: pagos, pendentes e atrasados'],
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null, boleto:null };
 let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
   {tipo:'item', tab:'agenda', label:'Agenda'},
-  {tipo:'item', tab:'kanban', label:'Quadro de tarefas'},
   {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
     {tab:'crm', label:'CRM'},
     {tab:'talao', label:'Talão de comissões'},
@@ -533,6 +515,7 @@ const NAV_ESTRUTURA = [
     {tab:'cartoes', label:'Cartões e empréstimos'},
     {tab:'notas', label:'Notas fiscais'},
     {tab:'faturas', label:'Faturas de cobrança'},
+    {tab:'boletos', label:'Boletos'},
     {tab:'prolabore', label:'Pró-labore'},
     {tab:'dre', label:'DRE'},
     {tab:'balancete', label:'Balancete'}
@@ -590,10 +573,10 @@ function render(){
   atualizarDatalistContatos();
   if(activeTab==='dashboard') view.innerHTML = renderDashboard();
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
-  if(activeTab==='kanban') view.innerHTML = renderKanban();
   if(activeTab==='crm') view.innerHTML = renderCRM();
   if(activeTab==='talao') view.innerHTML = renderTalao();
   if(activeTab==='faturas') view.innerHTML = renderFaturas();
+  if(activeTab==='boletos') view.innerHTML = renderBoletos();
   if(activeTab==='cartoes') view.innerHTML = renderCartoesEmprestimos();
   if(activeTab==='prolabore') view.innerHTML = renderProLabore();
   if(activeTab==='contas') view.innerHTML = renderContas();
@@ -755,6 +738,7 @@ function anosDisponiveisGlobal(){
   coletar(state.notas, 'data');
   coletar(state.faturas, 'dataEmissao');
   coletar(state.cartaoLancamentos, 'data');
+  coletar(state.boletos, 'vencimento');
   return Array.from(anos).sort();
 }
 function periodoLabel(){
@@ -2114,47 +2098,6 @@ function talaoTabelaManager(adm, tabelas){
   </div>`;
 }
 
-/* ---------------- QUADRO DE TAREFAS (Kanban) ---------------- */
-const KANBAN_COLS = [
-  {id:'todo', label:'A fazer', dot:'var(--ink-faint)'},
-  {id:'doing', label:'Em andamento', dot:'var(--warn)'},
-  {id:'done', label:'Concluído', dot:'var(--accent)'}
-];
-let kanbanDraggedId = null;
-function kanbanEncontrarCard(id){
-  for(const col of KANBAN_COLS){
-    const idx = state.kanban[col.id].findIndex(c=>c.id===id);
-    if(idx!==-1) return { col:col.id, idx };
-  }
-  return null;
-}
-function renderKanban(){
-  return `
-  <div class="kanban-board">
-    ${KANBAN_COLS.map(col=>{
-      const cards = state.kanban[col.id];
-      return `
-      <div class="kanban-col" data-kanban-col="${col.id}">
-        <div class="kanban-col-head">
-          <span class="kanban-col-title"><span class="kanban-dot" style="background:${col.dot};"></span>${col.label}</span>
-          <span class="badge-count">${cards.length}</span>
-        </div>
-        <div class="kanban-cards">
-          ${cards.map(c=>`
-            <div class="kanban-card" draggable="true" data-kanban-card="${c.id}">
-              <div class="kanban-text" contenteditable="true" data-kanban-texto="${c.id}">${escHtml(c.text)}</div>
-              <button class="kanban-card-del" data-kanban-del="${c.id}" title="Excluir">✕</button>
-            </div>`).join('')}
-        </div>
-        <div class="kanban-add">
-          <textarea rows="2" placeholder="Nova tarefa..." data-kanban-input="${col.id}"></textarea>
-          <button class="btn" data-kanban-add="${col.id}">Adicionar</button>
-        </div>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
-
 /* ---------------- CRM ---------------- */
 const CRM_ETAPAS = [
   {id:'lead', label:'Novo lead', cor:'gray'},
@@ -2459,6 +2402,85 @@ async function imprimirFatura(fatura){
   imprimirHtml(`Fatura ${fatura.numero}`, corpo);
 }
 
+/* ---------------- BOLETOS ---------------- */
+function renderBoletos(){
+  const edit = estadoEdicao.boleto ? state.boletos.find(b=>b.id===estadoEdicao.boleto) : null;
+  const todos = state.boletos;
+  const pendentes = todos.filter(b=> statusConta(b)!=='pago');
+  const totalPendente = pendentes.reduce((s,b)=> s+b.valor, 0);
+  const totalAtrasado = todos.filter(b=> statusConta(b)==='atrasado').reduce((s,b)=> s+b.valor, 0);
+  const totalPago = todos.filter(b=> statusConta(b)==='pago').reduce((s,b)=> s+b.valor, 0);
+  const lista = periodoGlobal.todos ? todos : todos.filter(b=> dentroDoPeriodo(b.vencimento));
+  const listaOrdenada = [...lista].sort((a,b)=> (a.vencimento||'').localeCompare(b.vencimento||''));
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Em aberto</div><div class="value">${fmtMoney(totalPendente)}</div><div class="hint">${pendentes.length} boleto(s)</div></div>
+    <div class="kpi"><div class="label">Em atraso</div><div class="value ${totalAtrasado>0?'neg':''}">${fmtMoney(totalAtrasado)}</div></div>
+    <div class="kpi"><div class="label">Pagos (total)</div><div class="value pos">${fmtMoney(totalPago)}</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar boleto' : 'Novo boleto'}</h2></div>
+    <div class="form-grid" style="grid-template-columns:0.8fr 1.4fr 1fr;">
+      <div class="field"><label>Número</label><input id="btNumero" placeholder="Ex: 000123" value="${edit? escAttr(edit.numero||''):''}"></div>
+      ${campoBuscaContato('btParte', 'Cliente', edit? edit.parte : '')}
+      <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="btValor" placeholder="0,00" value="${edit? edit.valor:''}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
+      <div class="field"><label>Emissão</label><input type="date" id="btEmissao" value="${edit? edit.dataEmissao : todayISO()}"></div>
+      <div class="field"><label>Vencimento</label><input type="date" id="btVencimento" value="${edit? edit.vencimento : todayISO()}"></div>
+      <div class="field"><label>Categoria (DRE)</label><select id="btCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Observações</label><input id="btObs" placeholder="Detalhes sobre este boleto..." value="${edit? escAttr(edit.obs||''):''}"></div>
+    </div>
+    <button class="btn btn-primary" id="addBoleto" style="margin-top:10px;">${edit? 'Salvar alterações' : 'Adicionar boleto'}</button>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoBoleto" style="margin-top:10px; margin-left:8px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Boletos</h2><span class="badge-count">${todos.length} no total</span></div>
+    <div style="margin-bottom:14px;">${renderControlePeriodo()}</div>
+    ${listaOrdenada.length===0? `<div class="empty">Nenhum boleto com vencimento ${periodoGlobal.todos?'cadastrado ainda':'em '+periodoLabel()}.</div>` : `
+    <details class="dia-acordeao">
+      <summary>
+        <span class="chev">▶</span>
+        <span style="font-weight:500; text-transform:capitalize;">${escHtml(periodoLabel())}</span>
+        <span class="muted" style="font-size:11.5px;">${listaOrdenada.length} boleto${listaOrdenada.length!==1?'s':''}</span>
+        <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(listaOrdenada.reduce((s,b)=>s+b.valor,0))}</span>
+      </summary>
+      <div class="table-wrap" style="margin-top:8px;">
+      <table><thead><tr><th>Nº</th><th>Cliente</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+      <tbody>${listaOrdenada.map(b=>{
+        const st = statusConta(b);
+        const pill = pillConta(st);
+        return `<tr>
+          <td>${escHtml(b.numero||'—')} ${b.obs? `<span class="muted" title="${escAttr(b.obs)}" style="cursor:help;">📝</span>`:''}</td>
+          <td class="muted">${escHtml(b.parte)}</td>
+          <td class="muted">${fmtDate(b.vencimento)}</td>
+          <td class="num">${fmtMoney(b.valor)}</td>
+          <td><span class="pill ${pill.c}">${pill.l}</span></td>
+          <td>
+            <details class="menu-acoes">
+              <summary>⋮</summary>
+              <div class="menu-lista">
+                ${st!=='pago'? `
+                <div class="menu-info">Escolha a conta e confirme:</div>
+                <select data-boleto-conta-select="${b.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
+                  ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+                </select>
+                <button data-boleto-pagar="${b.id}">Marcar como pago</button>
+                ` : `<button data-boleto-estornar="${b.id}">Estornar pagamento</button>`}
+                <button data-editar-boleto="${b.id}">Editar</button>
+                <button class="danger" data-del-boleto="${b.id}">Excluir</button>
+              </div>
+            </details>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>
+    </details>`}
+  </div>`;
+}
+
 /* ---------------- PRÓ-LABORE ---------------- */
 function renderProLabore(){
   const edit = estadoEdicao.proLabore ? state.proLabore.find(p=>p.id===estadoEdicao.proLabore) : null;
@@ -2572,84 +2594,82 @@ function imprimirBalancete(){
 }
 
 function attachHandlers(){
-  document.querySelectorAll('[data-kanban-card]').forEach(el=>{
-    el.addEventListener('dragstart', ()=>{
-      kanbanDraggedId = el.dataset.kanbanCard;
-      el.classList.add('dragging');
-    });
-    el.addEventListener('dragend', ()=>{
-      el.classList.remove('dragging');
-      kanbanDraggedId = null;
-    });
-  });
-  document.querySelectorAll('[data-kanban-col]').forEach(colEl=>{
-    colEl.addEventListener('dragover', e=>{ e.preventDefault(); colEl.classList.add('drag-over'); });
-    colEl.addEventListener('dragleave', ()=> colEl.classList.remove('drag-over'));
-    colEl.addEventListener('drop', e=>{
-      e.preventDefault();
-      colEl.classList.remove('drag-over');
-      if(!kanbanDraggedId) return;
-      const achado = kanbanEncontrarCard(kanbanDraggedId);
-      if(!achado) return;
-      const destino = colEl.dataset.kanbanCol;
-      const [movido] = state.kanban[achado.col].splice(achado.idx, 1);
-      let indiceInsercao = state.kanban[destino].length;
-      const cardsContainer = colEl.querySelector('.kanban-cards');
-      const cardDepois = [...cardsContainer.querySelectorAll('.kanban-card')].find(c=>{
-        const rect = c.getBoundingClientRect();
-        return e.clientY < rect.top + rect.height/2;
-      });
-      if(cardDepois){
-        const idxDepois = state.kanban[destino].findIndex(c=>c.id===cardDepois.dataset.kanbanCard);
-        if(idxDepois!==-1) indiceInsercao = idxDepois;
+  const addBoleto = document.getElementById('addBoleto');
+  if(addBoleto){
+    addBoleto.onclick = ()=>{
+      const numero = document.getElementById('btNumero').value.trim();
+      const { nome: parte } = resolverContato(document.getElementById('btParte').value);
+      const valor = parseFloat(document.getElementById('btValor').value);
+      if(!parte || !valor){ alert('Preencha ao menos o cliente e o valor.'); return; }
+      const dados = {
+        numero, parte,
+        dataEmissao: document.getElementById('btEmissao').value || todayISO(),
+        vencimento: document.getElementById('btVencimento').value || todayISO(),
+        valor: Math.abs(valor),
+        categoria: document.getElementById('btCategoria').value,
+        obs: document.getElementById('btObs').value.trim()
+      };
+      if(estadoEdicao.boleto){
+        const item = state.boletos.find(b=>b.id===estadoEdicao.boleto);
+        if(item) Object.assign(item, dados);
+        estadoEdicao.boleto = null;
+      } else {
+        state.boletos.push({ id: uid(), status:'pendente', ...dados });
       }
-      state.kanban[destino].splice(indiceInsercao, 0, movido);
       render(); saveState();
-    });
+    };
+  }
+  document.querySelectorAll('[data-editar-boleto]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.boleto = b.dataset.editarBoleto; render();
   });
-  document.querySelectorAll('[data-kanban-texto]').forEach(txt=>{
-    txt.addEventListener('blur', ()=>{
-      const achado = kanbanEncontrarCard(txt.dataset.kanbanTexto);
-      if(!achado) return;
-      const valor = txt.textContent.trim();
-      if(!valor){
-        state.kanban[achado.col].splice(achado.idx, 1);
-        render(); saveState();
-        return;
-      }
-      state.kanban[achado.col][achado.idx].text = valor;
-      saveState();
-    });
-    txt.addEventListener('keydown', e=>{
-      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); txt.blur(); }
-    });
-  });
-  document.querySelectorAll('[data-kanban-del]').forEach(b=> b.onclick = ()=>{
-    const achado = kanbanEncontrarCard(b.dataset.kanbanDel);
-    if(!achado) return;
-    state.kanban[achado.col].splice(achado.idx, 1);
+  const cancelarEdicaoBoleto = document.getElementById('cancelarEdicaoBoleto');
+  if(cancelarEdicaoBoleto) cancelarEdicaoBoleto.onclick = ()=>{ estadoEdicao.boleto=null; render(); };
+  document.querySelectorAll('[data-del-boleto]').forEach(b=> b.onclick = ()=>{
+    if(!confirm('Excluir este boleto?')) return;
+    state.boletos = state.boletos.filter(bo=>bo.id!==b.dataset.delBoleto);
     render(); saveState();
   });
-  document.querySelectorAll('[data-kanban-add]').forEach(b=> b.onclick = ()=>{
-    const col = b.dataset.kanbanAdd;
-    const input = document.querySelector(`[data-kanban-input="${col}"]`);
-    const valor = input.value.trim();
-    if(!valor) return;
-    state.kanban[col].push({ id: uid(), text: valor });
+  document.querySelectorAll('[data-boleto-pagar]').forEach(b=> b.onclick = ()=>{
+    const boleto = state.boletos.find(bo=>bo.id===b.dataset.boletoPagar);
+    if(!boleto) return;
+    const sel = document.querySelector(`[data-boleto-conta-select="${boleto.id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
+    boleto.status = 'pago';
+    boleto.contaId = contaId;
+    boleto.dataPagamento = todayISO();
+    const novaTxId = uid();
+    boleto.transacaoId = novaTxId;
+    state.transacoes.push({
+      id: novaTxId, contaId, data: todayISO(),
+      descricao: 'Recebimento boleto nº '+(boleto.numero||'—')+' — '+boleto.parte,
+      tipo: 'credito', valor: boleto.valor, categoria: boleto.categoria
+    });
     render(); saveState();
   });
-  document.querySelectorAll('[data-kanban-input]').forEach(input=>{
-    input.addEventListener('keydown', e=>{
-      if(e.key==='Enter' && !e.shiftKey){
-        e.preventDefault();
-        const col = input.dataset.kanbanInput;
-        const valor = input.value.trim();
-        if(!valor) return;
-        state.kanban[col].push({ id: uid(), text: valor });
-        render(); saveState();
+  document.querySelectorAll('[data-boleto-estornar]').forEach(b=> b.onclick = ()=>{
+    const boleto = state.boletos.find(bo=>bo.id===b.dataset.boletoEstornar);
+    if(!boleto) return;
+    if(!confirm('Estornar o pagamento deste boleto? Isso cria um lançamento de estorno no extrato e o boleto volta para pendente.')) return;
+    if(boleto.transacaoId){
+      const original = state.transacoes.find(t=>t.id===boleto.transacaoId);
+      if(original && !original.estornado){
+        original.estornado = true;
+        state.transacoes.push({
+          id: uid(), contaId: original.contaId, data: todayISO(),
+          descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
+          valor: original.valor, categoria: original.categoria, estornoDe: original.id
+        });
       }
-    });
+    }
+    boleto.status = 'pendente';
+    boleto.contaId = null;
+    boleto.dataPagamento = null;
+    boleto.transacaoId = null;
+    render(); saveState();
   });
+
+
 
 
   document.querySelectorAll('[data-talao-tab]').forEach(b=> b.onclick = ()=>{
