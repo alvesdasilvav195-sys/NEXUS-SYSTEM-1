@@ -2412,7 +2412,9 @@ function renderBoletos(){
   const totalPago = todos.filter(b=> statusConta(b)==='pago').reduce((s,b)=> s+b.valor, 0);
   const lista = periodoGlobal.todos ? todos : todos.filter(b=> dentroDoPeriodo(b.vencimento));
   const listaOrdenada = [...lista].sort((a,b)=> (a.vencimento||'').localeCompare(b.vencimento||''));
+  const adms = talaoAdmsAtuais();
   return `
+  <div class="hint" style="margin-bottom:14px;">Isso é só um controle — marcar como pago aqui não lança nada no seu extrato bancário nem na DRE, já que quem recebe o boleto é a administradora, não você. Serve para acompanhar se o cliente está em dia.</div>
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Em aberto</div><div class="value">${fmtMoney(totalPendente)}</div><div class="hint">${pendentes.length} boleto(s)</div></div>
     <div class="kpi"><div class="label">Em atraso</div><div class="value ${totalAtrasado>0?'neg':''}">${fmtMoney(totalAtrasado)}</div></div>
@@ -2428,8 +2430,9 @@ function renderBoletos(){
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
       <div class="field"><label>Emissão</label><input type="date" id="btEmissao" value="${edit? edit.dataEmissao : todayISO()}"></div>
       <div class="field"><label>Vencimento</label><input type="date" id="btVencimento" value="${edit? edit.vencimento : todayISO()}"></div>
-      <div class="field"><label>Categoria (DRE)</label><select id="btCategoria">${categoriasAtuais().map(c=>`<option value="${c.id}" ${edit? (edit.categoria===c.id?'selected':'') : (c.id==='receita_servicos'?'selected':'')}>${c.label}</option>`).join('')}</select></div>
+      <div class="field"><label>Administradora</label><input id="btAdministradora" list="talaoAdmsDatalist" placeholder="Quem recebe o boleto" value="${edit? escAttr(edit.administradora||''):''}"></div>
     </div>
+    <datalist id="talaoAdmsDatalist">${adms.map(a=>`<option value="${escAttr(a)}">`).join('')}</datalist>
     <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
       <div class="field"><label>Observações</label><input id="btObs" placeholder="Detalhes sobre este boleto..." value="${edit? escAttr(edit.obs||''):''}"></div>
     </div>
@@ -2448,13 +2451,14 @@ function renderBoletos(){
         <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(listaOrdenada.reduce((s,b)=>s+b.valor,0))}</span>
       </summary>
       <div class="table-wrap" style="margin-top:8px;">
-      <table><thead><tr><th>Nº</th><th>Cliente</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+      <table><thead><tr><th>Nº</th><th>Cliente</th><th>Administradora</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
       <tbody>${listaOrdenada.map(b=>{
         const st = statusConta(b);
         const pill = pillConta(st);
         return `<tr>
           <td>${escHtml(b.numero||'—')} ${b.obs? `<span class="muted" title="${escAttr(b.obs)}" style="cursor:help;">📝</span>`:''}</td>
           <td class="muted">${escHtml(b.parte)}</td>
+          <td class="muted">${escHtml(b.administradora||'—')}</td>
           <td class="muted">${fmtDate(b.vencimento)}</td>
           <td class="num">${fmtMoney(b.valor)}</td>
           <td><span class="pill ${pill.c}">${pill.l}</span></td>
@@ -2462,13 +2466,7 @@ function renderBoletos(){
             <details class="menu-acoes">
               <summary>⋮</summary>
               <div class="menu-lista">
-                ${st!=='pago'? `
-                <div class="menu-info">Escolha a conta e confirme:</div>
-                <select data-boleto-conta-select="${b.id}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
-                  ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
-                </select>
-                <button data-boleto-pagar="${b.id}">Marcar como pago</button>
-                ` : `<button data-boleto-estornar="${b.id}">Estornar pagamento</button>`}
+                ${st!=='pago'? `<button data-boleto-pagar="${b.id}">Marcar como pago</button>` : `<button data-boleto-estornar="${b.id}">Marcar como pendente</button>`}
                 <button data-editar-boleto="${b.id}">Editar</button>
                 <button class="danger" data-del-boleto="${b.id}">Excluir</button>
               </div>
@@ -2606,7 +2604,7 @@ function attachHandlers(){
         dataEmissao: document.getElementById('btEmissao').value || todayISO(),
         vencimento: document.getElementById('btVencimento').value || todayISO(),
         valor: Math.abs(valor),
-        categoria: document.getElementById('btCategoria').value,
+        administradora: document.getElementById('btAdministradora').value.trim(),
         obs: document.getElementById('btObs').value.trim()
       };
       if(estadoEdicao.boleto){
@@ -2632,40 +2630,15 @@ function attachHandlers(){
   document.querySelectorAll('[data-boleto-pagar]').forEach(b=> b.onclick = ()=>{
     const boleto = state.boletos.find(bo=>bo.id===b.dataset.boletoPagar);
     if(!boleto) return;
-    const sel = document.querySelector(`[data-boleto-conta-select="${boleto.id}"]`);
-    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
-    if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
     boleto.status = 'pago';
-    boleto.contaId = contaId;
     boleto.dataPagamento = todayISO();
-    const novaTxId = uid();
-    boleto.transacaoId = novaTxId;
-    state.transacoes.push({
-      id: novaTxId, contaId, data: todayISO(),
-      descricao: 'Recebimento boleto nº '+(boleto.numero||'—')+' — '+boleto.parte,
-      tipo: 'credito', valor: boleto.valor, categoria: boleto.categoria
-    });
     render(); saveState();
   });
   document.querySelectorAll('[data-boleto-estornar]').forEach(b=> b.onclick = ()=>{
     const boleto = state.boletos.find(bo=>bo.id===b.dataset.boletoEstornar);
     if(!boleto) return;
-    if(!confirm('Estornar o pagamento deste boleto? Isso cria um lançamento de estorno no extrato e o boleto volta para pendente.')) return;
-    if(boleto.transacaoId){
-      const original = state.transacoes.find(t=>t.id===boleto.transacaoId);
-      if(original && !original.estornado){
-        original.estornado = true;
-        state.transacoes.push({
-          id: uid(), contaId: original.contaId, data: todayISO(),
-          descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
-          valor: original.valor, categoria: original.categoria, estornoDe: original.id
-        });
-      }
-    }
     boleto.status = 'pendente';
-    boleto.contaId = null;
     boleto.dataPagamento = null;
-    boleto.transacaoId = null;
     render(); saveState();
   });
 
