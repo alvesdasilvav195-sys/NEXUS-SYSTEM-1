@@ -2231,18 +2231,50 @@ function resolverContato(nomeDigitado){
   if(encontrado) return { ref: encontrado.ref, nome: encontrado.nome };
   return { ref:'avulso', nome };
 }
-function statusFatura(f){
-  if(f.contasReceberId){
-    const cr = state.contasReceber.find(i=>i.id===f.contasReceberId);
-    if(cr) return statusConta(cr);
+function calcularParcelasFatura(total, numParcelas, vencimentoBase){
+  const n = Math.max(1, numParcelas);
+  const valorBase = Math.floor((total/n)*100)/100;
+  const parcelas = [];
+  let acumulado = 0;
+  for(let i=0;i<n;i++){
+    let valor = valorBase;
+    if(i===n-1) valor = Math.round((total-acumulado)*100)/100;
+    acumulado += valor;
+    parcelas.push({ numero:i+1, valor, vencimento: addMesesData(vencimentoBase, i) });
   }
-  return f.status || 'pendente';
+  return parcelas;
+}
+function addMesesData(dataISO, n){
+  const d = new Date(dataISO+'T00:00:00');
+  const diaOriginal = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth()+n);
+  const ultimoDiaMes = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  d.setDate(Math.min(diaOriginal, ultimoDiaMes));
+  return d.toISOString().slice(0,10);
+}
+function faturaParcelas(f){
+  if(f.parcelas && f.parcelas.length) return f.parcelas;
+  if(f.contasReceberId) return [{ numero:1, valor:f.valor, vencimento:f.vencimento, contasReceberId:f.contasReceberId }];
+  return [];
+}
+function statusFatura(f){
+  const parcelas = faturaParcelas(f);
+  if(parcelas.length===0) return f.status || 'pendente';
+  const statusParcelas = parcelas.map(p=>{
+    const cr = p.contasReceberId ? state.contasReceber.find(i=>i.id===p.contasReceberId) : null;
+    return cr ? statusConta(cr) : 'pendente';
+  });
+  if(statusParcelas.every(s=>s==='pago')) return 'pago';
+  if(statusParcelas.some(s=>s==='atrasado')) return 'atrasado';
+  if(statusParcelas.some(s=>s==='pago')) return 'parcial';
+  return 'pendente';
 }
 let faturaItensTemp = [];
 let faturaFormTemp = {};
 function capturarFormFatura(){
-  const campos = ['ftNumero','ftContato','ftCompetencia','ftDataEmissao','ftVencimento','ftNotaFiscal','ftCategoria'];
-  const mapa = { ftNumero:'numero', ftContato:'nomeCliente', ftCompetencia:'competencia', ftDataEmissao:'dataEmissao', ftVencimento:'vencimento', ftNotaFiscal:'notaFiscalId', ftCategoria:'categoria' };
+  const campos = ['ftNumero','ftContato','ftCompetencia','ftDataEmissao','ftVencimento','ftNotaFiscal','ftCategoria','ftNumParcelas'];
+  const mapa = { ftNumero:'numero', ftContato:'nomeCliente', ftCompetencia:'competencia', ftDataEmissao:'dataEmissao', ftVencimento:'vencimento', ftNotaFiscal:'notaFiscalId', ftCategoria:'categoria', ftNumParcelas:'numParcelas' };
   campos.forEach(id=>{
     const el = document.getElementById(id);
     if(el) faturaFormTemp[mapa[id]] = el.value;
@@ -2265,7 +2297,14 @@ function renderFaturas(){
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
       <div class="field"><label>Competência</label><input type="month" id="ftCompetencia" value="${val('competencia', todayISO().slice(0,7))}"></div>
       <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${val('dataEmissao', todayISO())}"></div>
-      <div class="field"><label>Vencimento</label><input type="date" id="ftVencimento" value="${val('vencimento', todayISO())}"></div>
+      <div class="field"><label>Vencimento (1ª parcela)</label><input type="date" id="ftVencimento" value="${val('vencimento', todayISO())}"></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 3fr; margin-top:2px;">
+      <div class="field">
+        <label>Parcelar em</label>
+        <input class="num" type="number" min="1" max="36" id="ftNumParcelas" value="${edit? (edit.parcelas&&edit.parcelas.length?edit.parcelas.length:1) : (faturaFormTemp.numParcelas||1)}" ${edit && edit.parcelas && edit.parcelas.some(p=>{ const cr=p.contasReceberId&&state.contasReceber.find(c=>c.id===p.contasReceberId); return cr && statusConta(cr)==='pago'; }) ? 'disabled title="Já existe parcela paga — não é possível reparcelar."' : ''}>
+      </div>
+      <div class="field"><label>&nbsp;</label><div class="hint" style="padding-top:8px;">As parcelas seguintes vencem em meses seguintes, na mesma data. Cada parcela gera um lançamento próprio em Contas a receber.</div></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
       <div class="field"><label>Vincular nota fiscal (opcional)</label><select id="ftNotaFiscal">
@@ -2287,7 +2326,18 @@ function renderFaturas(){
       <tr><td>${String(idx+1).padStart(3,'0')}</td><td>${escHtml(it.descricao)}</td><td class="num">${fmtMoney(it.valor)}</td>
       <td><button class="btn-danger-ghost" data-del-item-fatura="${idx}">Remover</button></td></tr>`).join('')}
     </tbody></table>
-    <div class="dre-line total" style="margin-top:6px;"><div class="lbl">Total da fatura</div><div class="num">${fmtMoney(totalItensFatura())}</div></div>`}
+    <div class="dre-line total" style="margin-top:6px;"><div class="lbl">Total da fatura</div><div class="num">${fmtMoney(totalItensFatura())}</div></div>
+    ${(()=>{
+      const numP = Math.max(1, parseInt(edit? (edit.parcelas&&edit.parcelas.length?edit.parcelas.length:1) : (faturaFormTemp.numParcelas||1)) || 1);
+      if(numP<=1) return '';
+      const totalAtual = totalItensFatura();
+      const vencBase = val('vencimento', todayISO());
+      const preview = calcularParcelasFatura(totalAtual, numP, vencBase);
+      return `<div class="hint" style="margin-top:8px;">Prévia das parcelas:</div>
+      <table style="margin-top:4px;"><tbody>
+        ${preview.map((p,i)=>`<tr><td class="muted">${i+1}/${numP}</td><td class="muted">${fmtDate(p.vencimento)}</td><td class="num">${fmtMoney(p.valor)}</td></tr>`).join('')}
+      </tbody></table>`;
+    })()}`}
 
     <button class="btn btn-primary" id="addFatura" style="margin-top:14px;">${edit? 'Salvar alterações' : 'Gerar fatura'}</button>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoFatura" style="margin-top:14px; margin-left:8px;">Cancelar edição</button>` : ''}
@@ -2309,26 +2359,45 @@ function renderFaturas(){
           <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(totalListaPeriodo)}</span>
         </summary>
         <div class="table-wrap" style="margin-top:8px;">
-        <table><thead><tr><th>Nº</th><th>Cliente</th><th>Emissão</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
+        <table><thead><tr><th>Nº</th><th>Cliente</th><th>Emissão</th><th>Parcelas</th><th class="num">Valor</th><th>Situação</th><th></th></tr></thead>
         <tbody>${listaPeriodo.map(f=>{
           const st = statusFatura(f);
-          const p = st==='pago'?{c:'green',l:'Paga'}:st==='atrasado'?{c:'red',l:'Atrasada'}:{c:'amber',l:'Pendente'};
+          const p = st==='pago'?{c:'green',l:'Paga'}:st==='atrasado'?{c:'red',l:'Atrasada'}:st==='parcial'?{c:'amber',l:'Parcial'}:{c:'amber',l:'Pendente'};
+          const parcelasF = faturaParcelas(f);
+          const pagas = parcelasF.filter(pc=>{
+            const cr = pc.contasReceberId && state.contasReceber.find(c=>c.id===pc.contasReceberId);
+            return cr && statusConta(cr)==='pago';
+          }).length;
           return `<tr>
             <td>${escHtml(f.numero)}</td>
             <td>${escHtml(f.nomeCliente)}</td>
             <td class="muted">${fmtDate(f.dataEmissao)}</td>
-            <td class="muted">${fmtDate(f.vencimento)}</td>
+            <td class="muted">${parcelasF.length<=1? fmtDate(f.vencimento) : `${pagas}/${parcelasF.length} pagas`}</td>
             <td class="num">${fmtMoney(f.valor)}</td>
             <td><span class="pill ${p.c}">${p.l}</span></td>
-            <td style="white-space:nowrap;">
-              ${st==='pago'? `<button class="btn-ghost" data-estornar-fatura="${f.id}">Estornar pagamento</button>` : `
-              <select data-fatura-conta-select="${f.id}" style="width:auto; display:inline-block; padding:5px 8px; font-size:12px; margin-right:4px;">
-                ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
-              </select>
-              <button class="btn-ghost" data-pagar-fatura="${f.id}">Marcar como paga</button>`}
-              <button class="btn-ghost" data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
-              <button class="btn-ghost" data-editar-fatura="${f.id}">Editar</button>
-              <button class="btn-danger-ghost" data-del-fatura="${f.id}">Excluir</button>
+            <td>
+              <details class="menu-acoes">
+                <summary>⋮</summary>
+                <div class="menu-lista">
+                  ${parcelasF.map((pc,i)=>{
+                    const cr = pc.contasReceberId && state.contasReceber.find(c=>c.id===pc.contasReceberId);
+                    const statusPc = cr ? statusConta(cr) : 'pendente';
+                    const label = parcelasF.length>1? `Parcela ${pc.numero}/${parcelasF.length} — ${fmtMoney(pc.valor)} (venc. ${fmtDate(pc.vencimento)})` : `Valor único — ${fmtMoney(pc.valor)}`;
+                    if(statusPc==='pago'){
+                      return `<div class="menu-info">${label} · paga</div><button data-estornar-parcela-fatura="${f.id}:${i}">Estornar esta parcela</button>`;
+                    }
+                    return `
+                    <div class="menu-info">${label}${statusPc==='atrasado'?' · atrasada':''}</div>
+                    <select data-fatura-parcela-conta="${f.id}:${i}" style="margin:2px 8px 6px; width:calc(100% - 16px);">
+                      ${state.contas.map(c=>`<option value="${c.id}">${escHtml(c.nome)}</option>`).join('')}
+                    </select>
+                    <button data-pagar-parcela-fatura="${f.id}:${i}">Marcar como paga</button>`;
+                  }).join('')}
+                  <button data-ver-fatura="${f.id}">Ver / Imprimir PDF</button>
+                  <button data-editar-fatura="${f.id}">Editar</button>
+                  <button class="danger" data-del-fatura="${f.id}">Excluir</button>
+                </div>
+              </details>
             </td>
           </tr>`;
         }).join('')}
@@ -2341,8 +2410,9 @@ async function imprimirFatura(fatura){
   const emp = state.empresa;
   const nota = fatura.notaFiscalId ? state.notas.find(n=>n.id===fatura.notaFiscalId) : null;
   const st = statusFatura(fatura);
-  const statusLabel = st==='pago'?'Paga':st==='atrasado'?'Atrasada':'Pendente';
+  const statusLabel = st==='pago'?'Paga':st==='atrasado'?'Atrasada':st==='parcial'?'Parcialmente paga':'Pendente';
   const itens = (fatura.itens && fatura.itens.length) ? fatura.itens : [{descricao: fatura.descricao || 'Serviço prestado', valor: fatura.valor}];
+  const parcelasF = faturaParcelas(fatura);
   const qrDataUrl = emp.pixChave ? await gerarQrPixDataURL(emp.pixChave, fatura.valor, emp.pixNome||emp.nome, emp.pixCidade, 'FAT'+fatura.numero.replace(/[^A-Za-z0-9]/g,'')) : null;
   const [anoComp, mesComp] = (fatura.competencia||todayISO().slice(0,7)).split('-');
   const corpo = `
@@ -2374,7 +2444,7 @@ async function imprimirFatura(fatura){
     <div class="dre-section-title" style="border-top:1px solid #eee; padding-top:10px;">CRONOGRAMA</div>
     <table style="border:none;"><tr>
       <td style="border:none; padding:2px 20px 2px 0;">Emissão: <b>${fmtDate(fatura.dataEmissao)}</b></td>
-      <td style="border:none; padding:2px 20px 2px 0;">Vencimento: <b>${fmtDate(fatura.vencimento)}</b></td>
+      <td style="border:none; padding:2px 20px 2px 0;">${parcelasF.length>1? '1ª parcela' : 'Vencimento'}: <b>${fmtDate(fatura.vencimento)}</b></td>
       <td style="border:none; padding:2px 20px 2px 0;">Competência: <b>${mesComp}/${anoComp}</b></td>
       <td style="border:none; padding:2px 0;">Status: <b>${statusLabel}</b></td>
     </tr></table>
@@ -2383,6 +2453,17 @@ async function imprimirFatura(fatura){
     <table><thead><tr><th style="width:40px;">Item</th><th>Especificação</th><th class="num">Valor</th></tr></thead>
     <tbody>${itens.map((it,idx)=>`<tr><td>${String(idx+1).padStart(3,'0')}</td><td>${escHtml(it.descricao)}</td><td class="num">${fmtMoney(it.valor)}</td></tr>`).join('')}
     </tbody></table>
+
+    ${parcelasF.length>1? `
+    <h2 style="margin-top:20px;">Parcelamento</h2>
+    <table><thead><tr><th style="width:60px;">Parcela</th><th>Vencimento</th><th class="num">Valor</th></tr></thead>
+    <tbody>${parcelasF.map(pc=>{
+      const cr = pc.contasReceberId && state.contasReceber.find(c=>c.id===pc.contasReceberId);
+      const stPc = cr? statusConta(cr) : 'pendente';
+      const labelPc = stPc==='pago'?'Paga':stPc==='atrasado'?'Atrasada':'Pendente';
+      return `<tr><td>${pc.numero}/${parcelasF.length}</td><td>${fmtDate(pc.vencimento)} <span class="muted">(${labelPc})</span></td><td class="num">${fmtMoney(pc.valor)}</td></tr>`;
+    }).join('')}
+    </tbody></table>` : ''}
 
     <div class="totais" style="margin-top:14px; max-width:320px; margin-left:auto;">
       <div><span>Subtotal geral</span><span>${fmtMoney(fatura.valor)}</span></div>
@@ -3087,6 +3168,7 @@ function attachHandlers(){
       const numero = document.getElementById('ftNumero').value.trim();
       const { ref: contatoRef, nome: nomeCliente } = resolverContato(document.getElementById('ftContato').value);
       const valor = totalItensFatura();
+      const numParcelas = Math.max(1, parseInt(document.getElementById('ftNumParcelas').value)||1);
       if(!numero || !valor || !nomeCliente){
         alert('Preencha número, cliente, e adicione ao menos um item de serviço.'); return;
       }
@@ -3103,38 +3185,61 @@ function attachHandlers(){
       if(estadoEdicao.fatura){
         const item = state.faturas.find(f=>f.id===estadoEdicao.fatura);
         if(item){
+          const parcelasAtuais = faturaParcelas(item);
+          const existeParcelaPaga = parcelasAtuais.some(p=>{
+            const cr = p.contasReceberId && state.contasReceber.find(c=>c.id===p.contasReceberId);
+            return cr && statusConta(cr)==='pago';
+          });
           Object.assign(item, dados);
-          if(item.contasReceberId){
-            const cr = state.contasReceber.find(c=>c.id===item.contasReceberId);
-            if(cr && cr.status!=='pago'){
-              cr.descricao = 'Fatura nº '+numero+' — '+nomeCliente;
-              cr.parte = nomeCliente;
-              cr.valor = dados.valor;
-              cr.vencimento = dados.vencimento;
-              cr.categoria = dados.categoria;
-            }
+          if(!existeParcelaPaga){
+            // nenhuma parcela paga ainda: pode reconstruir os lançamentos pendentes com segurança
+            parcelasAtuais.forEach(p=>{
+              if(p.contasReceberId) state.contasReceber = state.contasReceber.filter(c=>c.id!==p.contasReceberId);
+            });
+            const novasParcelas = calcularParcelasFatura(dados.valor, numParcelas, dados.vencimento);
+            item.parcelas = novasParcelas.map(p=>{
+              const receberId = uid();
+              state.contasReceber.push({
+                id: receberId,
+                descricao: `Fatura nº ${numero} — ${nomeCliente}` + (numParcelas>1? ` (parcela ${p.numero}/${numParcelas})` : ''),
+                parte: nomeCliente, valor: p.valor, vencimento: p.vencimento,
+                categoria: dados.categoria, status: 'pendente'
+              });
+              return { ...p, contasReceberId: receberId };
+            });
+            delete item.contasReceberId;
+          } else if(parcelasAtuais.length===1 && parcelasAtuais[0].contasReceberId){
+            // fatura antiga (sem array de parcelas) já paga: só atualiza os dados de referência
+            const cr = state.contasReceber.find(c=>c.id===parcelasAtuais[0].contasReceberId);
+            if(cr && cr.status!=='pago'){ cr.parte = nomeCliente; cr.categoria = dados.categoria; }
           }
         }
         estadoEdicao.fatura = null;
       } else {
         const faturaId = uid();
-        const receberId = uid();
-        state.contasReceber.push({
-          id: receberId,
-          descricao: 'Fatura nº '+numero+' — '+nomeCliente,
-          parte: nomeCliente,
-          valor: dados.valor,
-          vencimento: dados.vencimento,
-          categoria: dados.categoria,
-          status: 'pendente'
+        const parcelasCalculadas = calcularParcelasFatura(valor, numParcelas, dados.vencimento);
+        const parcelas = parcelasCalculadas.map(p=>{
+          const receberId = uid();
+          state.contasReceber.push({
+            id: receberId,
+            descricao: `Fatura nº ${numero} — ${nomeCliente}` + (numParcelas>1? ` (parcela ${p.numero}/${numParcelas})` : ''),
+            parte: nomeCliente, valor: p.valor, vencimento: p.vencimento,
+            categoria: dados.categoria, status: 'pendente'
+          });
+          return { ...p, contasReceberId: receberId };
         });
-        state.faturas.push({ id: faturaId, ...dados, contasReceberId: receberId, status:'pendente' });
+        state.faturas.push({ id: faturaId, ...dados, parcelas, status:'pendente' });
       }
       faturaItensTemp = [];
       faturaFormTemp = {};
       render(); saveState();
     };
   }
+  const ftNumParcelas = document.getElementById('ftNumParcelas');
+  if(ftNumParcelas) ftNumParcelas.onchange = ()=>{ capturarFormFatura(); render(); };
+  const ftVencimentoEl = document.getElementById('ftVencimento');
+  if(ftVencimentoEl) ftVencimentoEl.onchange = ()=>{ capturarFormFatura(); render(); };
+
   const addItemFatura = document.getElementById('addItemFatura');
   if(addItemFatura){
     addItemFatura.onclick = ()=>{
@@ -3169,12 +3274,17 @@ function attachHandlers(){
     state.faturas = state.faturas.filter(f=>f.id!==b.dataset.delFatura);
     render(); saveState();
   });
-  document.querySelectorAll('[data-pagar-fatura]').forEach(b=> b.onclick = ()=>{
-    const f = state.faturas.find(f=>f.id===b.dataset.pagarFatura);
-    if(!f || !f.contasReceberId) return;
-    const cr = state.contasReceber.find(c=>c.id===f.contasReceberId);
+  document.querySelectorAll('[data-pagar-parcela-fatura]').forEach(b=> b.onclick = ()=>{
+    const [faturaId, idxStr] = b.dataset.pagarParcelaFatura.split(':');
+    const idx = parseInt(idxStr);
+    const f = state.faturas.find(f=>f.id===faturaId);
+    if(!f) return;
+    const parcelas = faturaParcelas(f);
+    const pc = parcelas[idx];
+    if(!pc || !pc.contasReceberId) return;
+    const cr = state.contasReceber.find(c=>c.id===pc.contasReceberId);
     if(!cr) return;
-    const sel = document.querySelector(`[data-fatura-conta-select="${f.id}"]`);
+    const sel = document.querySelector(`[data-fatura-parcela-conta="${faturaId}:${idx}"]`);
     const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
     if(!contaId){ alert('Cadastre uma conta bancária primeiro.'); return; }
     cr.status = 'pago';
@@ -3192,12 +3302,17 @@ function attachHandlers(){
     });
     render(); saveState();
   });
-  document.querySelectorAll('[data-estornar-fatura]').forEach(b=> b.onclick = ()=>{
-    const f = state.faturas.find(f=>f.id===b.dataset.estornarFatura);
-    if(!f || !f.contasReceberId) return;
-    const cr = state.contasReceber.find(c=>c.id===f.contasReceberId);
+  document.querySelectorAll('[data-estornar-parcela-fatura]').forEach(b=> b.onclick = ()=>{
+    const [faturaId, idxStr] = b.dataset.estornarParcelaFatura.split(':');
+    const idx = parseInt(idxStr);
+    const f = state.faturas.find(f=>f.id===faturaId);
+    if(!f) return;
+    const parcelas = faturaParcelas(f);
+    const pc = parcelas[idx];
+    if(!pc || !pc.contasReceberId) return;
+    const cr = state.contasReceber.find(c=>c.id===pc.contasReceberId);
     if(!cr) return;
-    if(!confirm('Estornar o pagamento desta fatura? Isso cria um lançamento de estorno no extrato (sem apagar o histórico) e marca a fatura como pendente novamente.')) return;
+    if(!confirm('Estornar o pagamento desta parcela? Isso cria um lançamento de estorno no extrato (sem apagar o histórico) e marca a parcela como pendente novamente.')) return;
     const original = cr.transacaoId ? state.transacoes.find(t=>t.id===cr.transacaoId) : null;
     if(original && !original.estornado){
       original.estornado = true;
