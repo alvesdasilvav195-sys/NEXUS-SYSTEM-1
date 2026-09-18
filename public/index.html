@@ -1,4 +1,4 @@
-	<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -99,6 +99,19 @@
   .menu-acoes .menu-lista button:hover{ background:var(--bg); }
   .menu-acoes .menu-lista button.danger{ color:var(--danger); }
   .menu-acoes .menu-lista .menu-info{ padding:6px 10px; font-size:11px; color:var(--ink-faint); }
+  .info-popover{ position:relative; display:inline-block; vertical-align:middle; }
+  .info-popover > summary{ list-style:none; cursor:help; width:16px; height:16px; border-radius:50%; border:1px solid var(--line-strong); color:var(--ink-faint); font-size:11px; line-height:14px; text-align:center; user-select:none; }
+  .info-popover > summary::-webkit-details-marker{ display:none; }
+  .info-popover:hover > summary, .info-popover[open] > summary{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent-dark); }
+  .info-popover .info-texto{ position:absolute; left:0; top:calc(100% + 6px); background:var(--ink); color:#F3EFE3; font-size:12px; line-height:1.5; padding:10px 12px; border-radius:8px; width:280px; z-index:40; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+  .info-popover:hover .info-texto{ display:block !important; }
+  .info-popover .info-texto b{ color:#fff; }
+  .info-icone{ display:inline-block; position:relative; vertical-align:middle; }
+  .info-icone > summary{ list-style:none; cursor:help; width:16px; height:16px; border-radius:50%; background:var(--bg); border:1px solid var(--line-strong); color:var(--ink-soft); font-size:11px; line-height:14px; text-align:center; user-select:none; }
+  .info-icone > summary::-webkit-details-marker{ display:none; }
+  .info-icone[open] > summary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+  .info-icone .info-balao{ position:absolute; left:0; top:calc(100% + 6px); background:var(--ink); color:#F3EFE3; font-size:12.5px; line-height:1.55; padding:10px 13px; border-radius:8px; width:280px; z-index:40; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+  .info-balao b{ color:#fff; }
   .dia-acordeao{ border:1px solid var(--line); border-radius:8px; padding:0 12px; background:var(--surface); }
   .dia-acordeao > summary{ list-style:none; display:flex; align-items:center; gap:10px; padding:10px 0; cursor:pointer; font-size:13px; }
   .dia-acordeao > summary::-webkit-details-marker{ display:none; }
@@ -497,7 +510,7 @@ const TITLES = {
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null, boleto:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null, boleto:null, ajustePlano:null };
 let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
@@ -600,7 +613,6 @@ function renderDashboard(){
   const dre = calcularDRE(hoje.getMonth(), hoje.getFullYear());
   const saldo = saldoTotalContas();
   const notasAbertas = state.notas.filter(n=>n.status!=='paga' && n.status!=='cancelada').length;
-  const ultimasTx = [...state.transacoes].sort((a,b)=> b.data.localeCompare(a.data)).slice(0,6);
   const eventosHoje = eventosDoDia(todayISO());
   return `
   <div class="card" style="border-color:var(--accent); background:var(--accent-soft);">
@@ -620,14 +632,6 @@ function renderDashboard(){
     <div class="kpi"><div class="label">Receita do mês</div><div class="value pos">${fmtMoney(dre.receitaBruta)}</div></div>
     <div class="kpi"><div class="label">Resultado do mês</div><div class="value ${dre.resultadoLiquido>=0?'pos':'neg'}">${fmtMoney(dre.resultadoLiquido)}</div></div>
     <div class="kpi"><div class="label">Notas fiscais pendentes</div><div class="value">${notasAbertas}</div></div>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>Últimos lançamentos</h2><span class="hint">Extrato bancário</span></div>
-    ${ultimasTx.length===0? '<div class="empty">Nenhum lançamento ainda. Vá até "Extrato bancário" para adicionar o primeiro.</div>' : `
-    <table><thead><tr><th>Data</th><th>Descrição</th><th>Conta</th><th class="num">Valor</th></tr></thead><tbody>
-      ${ultimasTx.map(t=>`<tr><td>${fmtDate(t.data)}</td><td>${escHtml(t.descricao)}</td><td class="muted">${escHtml(contaNome(t.contaId))}</td>
-      <td class="num ${t.tipo==='credito'?'pos':'neg'}">${t.tipo==='credito'?'+':'-'} ${fmtMoney(t.valor)}</td></tr>`).join('')}
-    </tbody></table>`}
   </div>`;
 }
 function renderConfigEmpresa(){
@@ -656,8 +660,7 @@ function renderCategoriasDre(){
   const edit = estadoEdicao.categoria ? state.categoriasDre.find(c=>c.id===estadoEdicao.categoria) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>${edit? 'Editar categoria' : 'Nova categoria'}</h2></div>
-    <div class="hint" style="margin-bottom:12px;">O "impacto na DRE" define em qual linha da Demonstração de Resultado essa categoria entra automaticamente, sempre que for usada em algum lançamento.</div>
+    <div class="card-head"><h2>${edit? 'Editar categoria' : 'Nova categoria'}</h2>${avisoIcon('O "impacto na DRE" define em qual linha da Demonstração de Resultado essa categoria entra automaticamente, sempre que for usada em algum lançamento.')}</div>
     <div class="form-grid" style="grid-template-columns:1.6fr 1.6fr auto;">
       <div class="field"><label>Nome da categoria</label><input id="catNome" placeholder="Ex: Comissões de vendedores" value="${edit? escAttr(edit.label):''}"></div>
       <div class="field"><label>Impacto na DRE</label><select id="catGrupo">${GRUPOS_DRE_OPCOES.map(g=>`<option value="${g.id}" ${edit&&edit.grupo===g.id?'selected':''}>${g.label}</option>`).join('')}</select></div>
@@ -666,7 +669,7 @@ function renderCategoriasDre(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoCategoria" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Categorias cadastradas</h2><span class="badge-count">${state.categoriasDre.length}</span></div>
+    <div class="card-head"><h2>Categorias cadastradas</h2><span class="badge-count">${state.categoriasDre.length}</span>${avisoIcon('Evite excluir as categorias "Transferência entre contas" e "Correção de saldo" — algumas funções automáticas do sistema usam elas.')}</div>
     <table><thead><tr><th>Categoria</th><th>Impacto na DRE</th><th></th></tr></thead>
     <tbody>${state.categoriasDre.map(c=>`
       <tr>
@@ -678,13 +681,19 @@ function renderCategoriasDre(){
         </td>
       </tr>`).join('')}
     </tbody></table>
-    <div class="hint" style="margin-top:10px;">Evite excluir as categorias "Transferência entre contas" e "Correção de saldo" — algumas funções automáticas do sistema usam elas.</div>
   </div>`;
 }
 
 function contaNome(id){ const c = state.contas.find(c=>c.id===id); return c? (c.nome+(c.banco? ' · '+c.banco:'')) : '—'; }
 function escHtml(s){ return (s??'').toString().replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function escAttr(s){ return escHtml(s); }
+function avisoIcon(html){
+  return `<details class="info-popover"><summary>i</summary><div class="info-texto">${html}</div></details>`;
+}
+function iconeAviso(html){
+  const textoPlano = html.replace(/<[^>]+>/g,'').replace(/"/g,'&quot;');
+  return `<details class="info-icone"><summary title="${textoPlano}">ⓘ</summary><div class="info-balao">${html}</div></details>`;
+}
 
 /* ---------------- CONTAS BANCÁRIAS ---------------- */
 function renderContas(){
@@ -758,6 +767,7 @@ function renderControlePeriodo(){
 
 let ofxPreview = null;
 let mostrarCorrecaoSaldo = false;
+let mostrarTransferencia = false;
 function renderExtrato(){
   if(state.contas.length===0){
     return `<div class="card"><div class="empty">Cadastre uma conta bancária primeiro, na aba "Contas bancárias".</div></div>`;
@@ -782,10 +792,28 @@ function renderExtrato(){
     </select>
     <span class="pill ${saldoConta(extratoContaSel)>=0?'green':'red'}" style="margin-left:10px;">Saldo atual: ${fmtMoney(saldoConta(extratoContaSel))}</span>
     <button class="btn-ghost" id="toggleCorrecaoSaldo" style="margin-left:8px;">${mostrarCorrecaoSaldo? 'Fechar correção de saldo' : 'Corrigir saldo desta conta'}</button>
+    <button class="btn-ghost" id="toggleTransferencia" style="margin-left:8px;">${mostrarTransferencia? 'Fechar transferência' : 'Transferir entre contas'}</button>
     <button class="btn-danger-ghost" id="excluirExtratoCompleto" style="margin-left:8px;">Excluir extrato completo desta conta</button>
+    ${mostrarTransferencia? `
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">
+      ${state.contas.length<2? `<div class="hint">Cadastre pelo menos duas contas bancárias para transferir saldo entre elas.</div>` : `
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr auto;">
+        <div class="field"><label>De</label><select id="transfOrigem">
+          ${state.contas.map(c=>`<option value="${c.id}" ${c.id===extratoContaSel?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Para</label><select id="transfDestino">
+          ${state.contas.map(c=>`<option value="${c.id}" ${c.id!==extratoContaSel?'selected':''}>${escHtml(c.nome)}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Valor</label><input class="num" type="number" step="0.01" id="transfValor" placeholder="0,00"></div>
+        <div class="field"><label>Data</label><input type="date" id="transfData" value="${todayISO()}"></div>
+        <button class="btn btn-primary" id="confirmarTransferencia">Transferir</button>
+      </div>
+      <div class="hint" style="margin-top:6px;">Cria automaticamente uma saída na conta de origem e uma entrada na conta de destino, sem afetar a DRE.</div>
+      `}
+    </div>` : ''}
     ${mostrarCorrecaoSaldo? `
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line);">
-      <div class="hint" style="margin-bottom:8px;">Use isso quando o saldo aqui não bate com o saldo real do banco. Informe o saldo correto e o sistema lança a diferença automaticamente, sem contar como receita ou despesa na DRE.</div>
+      <div style="margin-bottom:8px; font-size:12.5px; color:var(--ink-soft); display:flex; align-items:center; gap:6px;">Corrigir saldo real da conta ${avisoIcon('Use isso quando o saldo aqui não bate com o saldo real do banco. Informe o saldo correto e o sistema lança a diferença automaticamente, sem contar como receita ou despesa na DRE.')}</div>
       <div class="form-grid" style="grid-template-columns:1fr auto;">
         <div class="field"><label>Saldo correto (conforme o banco)</label><input class="num" type="number" step="0.01" id="saldoCorrigidoInput" placeholder="0,00"></div>
         <button class="btn btn-primary" id="confirmarCorrecaoSaldo">Aplicar correção</button>
@@ -804,7 +832,7 @@ function renderExtrato(){
     </div>
     ${edit? `
     <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
-      <div class="field"><label>Conta bancária deste lançamento</label><select id="txConta">
+      <div class="field"><label>Conta bancária deste lançamento ${avisoIcon('Trocar a conta bancária aqui move este lançamento para a conta escolhida (o saldo das duas contas é recalculado automaticamente).')}</label><select id="txConta">
         ${state.contas.map(c=>`<option value="${c.id}" ${edit.contaId===c.id?'selected':''}>${escHtml(c.nome)}${c.banco? ' · '+escHtml(c.banco):''}</option>`).join('')}
       </select></div>
       <div class="field"><label>Nota fiscal vinculada (opcional)</label><select id="txNotaFiscal">
@@ -815,26 +843,23 @@ function renderExtrato(){
     <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
       <div class="field"><label>Observações</label><input id="txObs" placeholder="Anotações sobre este lançamento..." value="${escAttr(edit.obs||'')}"></div>
     </div>
-    <div class="hint" style="margin-top:6px;">Trocar a conta bancária aqui move este lançamento para a conta escolhida (o saldo das duas contas é recalculado automaticamente).</div>
     ` : ''}
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoTx" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Importar extrato bancário (OFX)</h2></div>
-    <div class="hint" style="margin-bottom:10px;">Selecione o arquivo .ofx exportado do seu banco. Os lançamentos serão importados para a conta selecionada acima (<b>${escHtml(contaNome(extratoContaSel))}</b>).</div>
+    <div class="card-head"><h2>Importar extrato bancário (OFX)</h2>${avisoIcon('Selecione o arquivo .ofx exportado do seu banco. Os lançamentos serão importados para a conta selecionada acima: <b>'+escHtml(contaNome(extratoContaSel))+'</b>.')}</div>
     <input type="file" id="ofxInput" accept=".ofx,.qfx,text/*">
     ${ofxPreview? renderOfxPreview() : ''}
   </div>
   <div class="card">
     <div class="card-head">
-      <h2>Lançamentos</h2>
+      <h2>Lançamentos ${iconeAviso('Para desfazer um pagamento ou recebimento, use <b>"Estornar"</b> em vez de excluir — assim o lançamento original fica registrado no mês em que aconteceu (sem alterar a DRE de meses passados), e um lançamento de estorno é criado na data de hoje.')}</h2>
       <span class="badge-count">${linhas.length}${periodoGlobal.todos? '' : ' neste período'}</span>
     </div>
     <div style="margin-bottom:14px;">
       ${renderControlePeriodo()}
     </div>
     ${linhas.length===0? `<div class="empty">Nenhum lançamento ${periodoGlobal.todos? 'nesta conta ainda' : 'neste período — os lançamentos de outros meses continuam salvos, só não aparecem aqui'}.</div>` : `
-    <div class="hint" style="margin-bottom:10px;">Para desfazer um pagamento ou recebimento, use <b>"Estornar"</b> em vez de excluir — assim o lançamento original fica registrado no mês em que aconteceu (sem alterar a DRE de meses passados), e um lançamento de estorno é criado na data de hoje.</div>
     <details class="dia-acordeao">
       <summary>
         <span class="chev">▶</span>
@@ -1184,8 +1209,7 @@ function renderFornecedores(){
   const edit = estadoEdicao.fornecedor ? state.fornecedores.find(f=>f.id===estadoEdicao.fornecedor) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>${edit? 'Editar cadastro' : 'Novo cadastro'}</h2></div>
-    <div class="hint" style="margin-bottom:12px;">Este é o cadastro único de pessoas e empresas do sistema — o mesmo contato pode ser selecionado depois em Notas fiscais, Contas a pagar/receber e Faturas, sem precisar digitar o nome de novo.</div>
+    <div class="card-head"><h2>${edit? 'Editar cadastro' : 'Novo cadastro'}</h2>${avisoIcon('Este é o cadastro único de pessoas e empresas do sistema — o mesmo contato pode ser selecionado depois em Notas fiscais, Contas a pagar/receber e Faturas, sem precisar digitar o nome de novo.')}</div>
     <div class="form-grid" style="grid-template-columns:1.3fr 0.8fr 1fr 1fr auto;">
       <div class="field"><label>Nome / Razão social</label><input id="fnNome" placeholder="Nome do contato" value="${edit? escAttr(edit.nome):''}"></div>
       <div class="field"><label>Tipo</label><select id="fnTipo">
@@ -1289,7 +1313,7 @@ function renderNotas(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoNota" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length} no total</span></div>
+    <div class="card-head"><h2>Notas cadastradas</h2><span class="badge-count">${notas.length} no total</span>${avisoIcon('A DRE é calculada a partir do extrato bancário (regime de caixa). Ao lançar uma nota em Contas a pagar/receber, ela entra automaticamente lá com o mesmo valor; se você excluir a nota depois, o lançamento correspondente é removido também.')}</div>
     <div style="margin-bottom:14px;">${renderControlePeriodo()}</div>
     ${(()=>{
       const notasPeriodo = periodoGlobal.todos ? notas : notas.filter(n=> dentroDoPeriodo(n.data));
@@ -1335,7 +1359,6 @@ function renderNotas(){
         </tbody></table></div>
       </details>`;
     })()}
-    <div class="hint" style="margin-top:10px;">A DRE é calculada a partir do extrato bancário (regime de caixa). Ao lançar uma nota em Contas a pagar/receber, ela entra automaticamente lá com o mesmo valor; se você excluir a nota depois, o lançamento correspondente é removido também.</div>
   </div>
   ${notaVisualizada? renderNotaCompleta() : ''}`;
 }
@@ -1529,6 +1552,7 @@ function calcularBalancete(){
     } else {
       saldo = p.saldoManual||0;
     }
+    if(p.auto) saldo += (p.ajusteManual||0);
     const devedor = p.natureza==='D'? saldo : 0;
     const credor = p.natureza==='C'? saldo : 0;
     totalD += devedor; totalC += credor;
@@ -1541,8 +1565,7 @@ function renderBalancete(){
   const edit = estadoEdicao.plano ? state.plano.find(p=>p.id===estadoEdicao.plano) : null;
   return `
   <div class="card">
-    <div class="card-head"><h2>Balancete</h2><button class="btn-ghost" id="imprimirBalancete">Imprimir / PDF</button></div>
-    <div class="hint">Posição atual das contas patrimoniais e de resultado.</div>
+    <div class="card-head"><h2>Balancete</h2><button class="btn-ghost" id="imprimirBalancete">Imprimir / PDF</button>${avisoIcon('Posição atual das contas patrimoniais e de resultado. As linhas marcadas como "automático" vêm dos lançamentos do sistema — use "Ajustar" nelas se precisar corrigir algum valor.')}</div>
   </div>
   <div class="card">
     <div class="card-head"><h2>${edit? 'Editar conta contábil' : 'Adicionar conta contábil'}</h2></div>
@@ -1561,13 +1584,29 @@ function renderBalancete(){
     return `<div class="card">
       <div class="card-head"><h2>${g}</h2></div>
       <table><thead><tr><th>Conta</th><th class="num">Devedor</th><th class="num">Credor</th><th></th></tr></thead>
-      <tbody>${rows.map(r=>`
+      <tbody>${rows.map(r=>{
+        const ajustando = estadoEdicao.ajustePlano===r.id;
+        return `
         <tr>
-          <td>${escHtml(r.conta)}${r.auto?` <span class="muted" style="font-size:11px;">(automático)</span>`:''}</td>
+          <td>${escHtml(r.conta)}${r.auto?` <span class="muted" style="font-size:11px;">(automático${r.ajusteManual? ', com ajuste':''})</span>`:''}</td>
           <td class="num">${r.devedor? fmtMoney(r.devedor) : '—'}</td>
           <td class="num">${r.credor? fmtMoney(r.credor) : '—'}</td>
-          <td>${r.auto? '' : `<button class="btn-ghost" data-editar-plano="${r.id}">Editar</button> <button class="btn-danger-ghost" data-del-plano="${r.id}">Excluir</button>`}</td>
-        </tr>`).join('')}
+          <td>${r.auto?
+            `<button class="btn-ghost" data-ajustar-plano="${r.id}">Ajustar</button>`
+            : `<button class="btn-ghost" data-editar-plano="${r.id}">Editar</button> <button class="btn-danger-ghost" data-del-plano="${r.id}">Excluir</button>`}</td>
+        </tr>
+        ${ajustando? `
+        <tr>
+          <td colspan="4" style="background:var(--bg);">
+            <div class="hint" style="margin-bottom:6px;">O valor automático dessa conta vem direto dos lançamentos do sistema. Se ele estiver errado, informe aqui uma correção (positiva ou negativa) que será somada a ele — sem afetar o cálculo automático em si.</div>
+            <div class="form-grid" style="grid-template-columns:1fr auto auto;">
+              <div class="field"><label>Ajuste (use valor negativo para subtrair)</label><input class="num" type="number" step="0.01" id="ajustePlanoValor" value="${r.ajusteManual||0}"></div>
+              <button class="btn btn-primary" data-salvar-ajuste-plano="${r.id}" style="align-self:end;">Salvar ajuste</button>
+              <button class="btn-ghost" data-cancelar-ajuste-plano style="align-self:end;">Cancelar</button>
+            </div>
+          </td>
+        </tr>` : ''}`;
+      }).join('')}
       </tbody></table>
     </div>`;
   }).join('')}
@@ -1773,6 +1812,7 @@ let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', co
 let talaoFiltroAdm = 'Todas';
 let talaoFiltroStatus = 'Todos';
 let talaoFiltroMes = 'Todos';
+let talaoFiltroCliente = 'Todos';
 function talaoCapturarForm(){
   const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito', vencimentoCota:'talVencimentoCota' };
   Object.entries(campos).forEach(([campo,id])=>{
@@ -1949,65 +1989,45 @@ function renderTalaoParcelas(){
       const idxB = (state.talao.parcelas.find(p=>p.mes===b)||{}).idx||0;
       return idxA-idxB;
     });
+  if(talaoFiltroMes!=='Todos' && !mesesDisponiveis.includes(talaoFiltroMes)) talaoFiltroMes = 'Todos';
+  const clientesDisponiveis = Array.from(new Set(state.talao.parcelas.map(p=>p.cliente))).sort((a,b)=>a.localeCompare(b));
+  if(talaoFiltroCliente!=='Todos' && !clientesDisponiveis.includes(talaoFiltroCliente)) talaoFiltroCliente = 'Todos';
   const parcelas = state.talao.parcelas
     .filter(p=> talaoFiltroAdm==='Todas' || p.adm===talaoFiltroAdm)
     .filter(p=> talaoFiltroStatus==='Todos' || p.status===talaoFiltroStatus)
     .filter(p=> talaoFiltroMes==='Todos' || p.mes===talaoFiltroMes)
+    .filter(p=> talaoFiltroCliente==='Todos' || p.cliente===talaoFiltroCliente)
     .sort((a,b)=>b.idx-a.idx);
   return `
   <div class="card">
     <div class="card-head"><h2>Parcelas de comissão</h2></div>
     <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
       <select id="talaoFiltroAdm" style="width:auto;">
-        <option ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
+        <option value="Todas" ${talaoFiltroAdm==='Todas'?'selected':''}>Todas</option>
         ${talaoAdmsAtuais().map(a=>`<option value="${escAttr(a)}" ${talaoFiltroAdm===a?'selected':''}>${escHtml(a)}</option>`).join('')}
       </select>
       <select id="talaoFiltroStatus" style="width:auto;">
-        <option ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
-        <option ${talaoFiltroStatus==='Recebido'?'selected':''}>Recebido</option>
-        <option ${talaoFiltroStatus==='A receber'?'selected':''}>A receber</option>
+        <option value="Todos" ${talaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
+        <option value="Recebido" ${talaoFiltroStatus==='Recebido'?'selected':''}>Recebido</option>
+        <option value="A receber" ${talaoFiltroStatus==='A receber'?'selected':''}>A receber</option>
         <option value="Faturado NF" ${talaoFiltroStatus==='Faturado NF'?'selected':''}>Faturado NF</option>
       </select>
       <select id="talaoFiltroMes" style="width:auto;">
-        <option ${talaoFiltroMes==='Todos'?'selected':''}>Todos os meses</option>
+        <option value="Todos" ${talaoFiltroMes==='Todos'?'selected':''}>Todos os meses</option>
         ${mesesDisponiveis.map(m=>`<option value="${escAttr(m)}" ${talaoFiltroMes===m?'selected':''}>${escHtml(m)}</option>`).join('')}
+      </select>
+      <select id="talaoFiltroCliente" style="width:auto;">
+        <option value="Todos" ${talaoFiltroCliente==='Todos'?'selected':''}>Todos os clientes</option>
+        ${clientesDisponiveis.map(c=>`<option value="${escAttr(c)}" ${talaoFiltroCliente===c?'selected':''}>${escHtml(c)}</option>`).join('')}
       </select>
       <span class="hint">${parcelas.length} parcela(s) · ${fmtMoney(parcelas.reduce((s,p)=>s+p.valor,0))}</span>
     </div>
   </div>
   <div class="card">
-    ${parcelas.length===0? '<div class="empty">Nenhuma parcela encontrada com esses filtros.</div>' : (
-      talaoFiltroMes!=='Todos' ? `
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        ${parcelas.map(p=>talaoTicket(p)).join('')}
-      </div>` : `
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        ${(()=>{
-          const porMes = {};
-          parcelas.forEach(p=>{ (porMes[p.mes] = porMes[p.mes]||[]).push(p); });
-          const mesesOrdenados = Object.keys(porMes).sort((a,b)=>{
-            const ia = porMes[a][0].idx, ib = porMes[b][0].idx;
-            return ib-ia;
-          });
-          return mesesOrdenados.map(mes=>{
-            const itensMes = porMes[mes];
-            const totalMes = itensMes.reduce((s,p)=>s+p.valor,0);
-            return `
-            <details class="dia-acordeao">
-              <summary>
-                <span class="chev">▶</span>
-                <span style="font-weight:500;">${escHtml(mes)}</span>
-                <span class="muted" style="font-size:11.5px;">${itensMes.length} parcela${itensMes.length!==1?'s':''}</span>
-                <span class="num" style="margin-left:auto; font-weight:600;">${fmtMoney(totalMes)}</span>
-              </summary>
-              <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
-                ${itensMes.map(p=>talaoTicket(p)).join('')}
-              </div>
-            </details>`;
-          }).join('');
-        })()}
-      </div>`
-    )}
+    ${parcelas.length===0? '<div class="empty">Nenhuma parcela encontrada com esses filtros.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${parcelas.map(p=>talaoTicket(p)).join('')}
+    </div>`}
   </div>`;
 }
 function talaoChaveMes(date){ return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`; }
@@ -2077,8 +2097,7 @@ function renderTalaoRegras(){
   const adms = talaoAdmsAtuais();
   return `
   <div class="card">
-    <div class="card-head"><h2>Administradoras</h2></div>
-    <div class="hint" style="margin-bottom:10px;">Cada administradora tem seu próprio conjunto de tabelas de comissão. Adicione uma nova quando começar a trabalhar com uma administradora diferente.</div>
+    <div class="card-head"><h2>Administradoras</h2>${avisoIcon('Cada administradora tem seu próprio conjunto de tabelas de comissão. Adicione uma nova quando começar a trabalhar com uma administradora diferente.')}</div>
     <div class="form-grid" style="grid-template-columns:1fr auto;">
       <div class="field"><label>Nome da nova administradora</label><input id="talaoNovaAdmNome" placeholder="Ex: Rodobens, Canopus, HS..."></div>
       <button class="btn btn-primary" id="talaoAddAdm">Adicionar administradora</button>
@@ -2094,8 +2113,7 @@ function renderTalaoRegras(){
     </div>
   </div>
   <div class="card">
-    <div class="card-head"><h2>⚡ Acelerador por meta batida</h2></div>
-    <div class="hint" style="margin-bottom:10px;">Se o total vendido no mês (soma do valor de crédito) atingir a meta, a comissão daquela venda é multiplicada.</div>
+    <div class="card-head"><h2>⚡ Acelerador por meta batida</h2>${avisoIcon('Se o total vendido no mês (soma do valor de crédito) atingir a meta, a comissão daquela venda é multiplicada.')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr auto;">
       <div class="field"><label>Meta mensal (R$)</label><input class="num" type="number" id="talaoMetaMensal" placeholder="ex: 500000" value="${escAttr(rules.acelerador.metaMensal)}"></div>
       <div class="field"><label>Multiplicador</label><input class="num" type="number" step="0.05" id="talaoMultiplicador" placeholder="ex: 1.2" value="${escAttr(rules.acelerador.multiplicador)}"></div>
@@ -2112,9 +2130,9 @@ function talaoTabelaManager(adm, tabelas){
       <div>
         <button class="btn" data-talao-nova-tabela="${admAttr}">+ nova tabela</button>
         <button class="btn-danger-ghost" data-talao-remover-adm="${admAttr}">Excluir administradora</button>
+        ${avisoIcon('Cada tabela tem sua própria % por parcela (não é taxa única dividida igualmente).')}
       </div>
     </div>
-    <div class="hint" style="margin-bottom:10px;">Cada tabela tem sua própria % por parcela (não é taxa única dividida igualmente).</div>
     ${tabelas.length===0? '<div class="empty">Nenhuma tabela cadastrada ainda.</div>' : `
     <div style="display:flex; flex-direction:column; gap:12px;">
       ${tabelas.map(t=>{
@@ -2343,12 +2361,11 @@ function renderFaturas(){
       <div class="field"><label>Data de emissão</label><input type="date" id="ftDataEmissao" value="${val('dataEmissao', todayISO())}"></div>
       <div class="field"><label>Vencimento (1ª parcela)</label><input type="date" id="ftVencimento" value="${val('vencimento', todayISO())}"></div>
     </div>
-    <div class="form-grid" style="grid-template-columns:1fr 3fr; margin-top:2px;">
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
       <div class="field">
-        <label>Parcelar em</label>
+        <label>Parcelar em ${avisoIcon('As parcelas seguintes vencem em meses seguintes, na mesma data. Cada parcela gera um lançamento próprio em Contas a receber.')}</label>
         <input class="num" type="number" min="1" max="36" id="ftNumParcelas" value="${edit? (edit.parcelas&&edit.parcelas.length?edit.parcelas.length:1) : (faturaFormTemp.numParcelas||1)}" ${edit && edit.parcelas && edit.parcelas.some(p=>{ const cr=p.contasReceberId&&state.contasReceber.find(c=>c.id===p.contasReceberId); return cr && statusConta(cr)==='pago'; }) ? 'disabled title="Já existe parcela paga — não é possível reparcelar."' : ''}>
       </div>
-      <div class="field"><label>&nbsp;</label><div class="hint" style="padding-top:8px;">As parcelas seguintes vencem em meses seguintes, na mesma data. Cada parcela gera um lançamento próprio em Contas a receber.</div></div>
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr; margin-top:2px;">
       <div class="field"><label>Vincular nota fiscal (opcional)</label><select id="ftNotaFiscal">
@@ -2385,7 +2402,7 @@ function renderFaturas(){
 
     <button class="btn btn-primary" id="addFatura" style="margin-top:14px;">${edit? 'Salvar alterações' : 'Gerar fatura'}</button>
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoFatura" style="margin-top:14px; margin-left:8px;">Cancelar edição</button>` : ''}
-    ${!edit? `<div class="hint" style="margin-top:10px;">Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o valor total dos itens e o vencimento informado.</div>` : ''}
+    ${!edit? `<span style="margin-left:8px;">${avisoIcon('Ao gerar, a fatura já entra automaticamente em <b>Contas a receber</b>, com o valor total dos itens e o vencimento informado.')}</span>` : ''}
   </div>
   <div class="card">
     <div class="card-head"><h2>Faturas emitidas</h2><span class="badge-count">${lista.length} no total</span></div>
@@ -2539,7 +2556,10 @@ function renderBoletos(){
   const listaOrdenada = [...lista].sort((a,b)=> (a.vencimento||'').localeCompare(b.vencimento||''));
   const adms = talaoAdmsAtuais();
   return `
-  <div class="hint" style="margin-bottom:14px;">Isso é só um controle — marcar como pago aqui não lança nada no seu extrato bancário nem na DRE, já que quem recebe o boleto é a administradora, não você. Serve para acompanhar se o cliente está em dia.</div>
+  <div style="display:flex; align-items:center; gap:6px; margin-bottom:14px;">
+    <span class="muted" style="font-size:12.5px;">Controle de boletos dos clientes</span>
+    ${avisoIcon('Isso é só um controle — marcar como pago aqui não lança nada no seu extrato bancário nem na DRE, já que quem recebe o boleto é a administradora, não você. Serve para acompanhar se o cliente está em dia.')}
+  </div>
   <div class="kpi-grid">
     <div class="kpi"><div class="label">Em aberto</div><div class="value">${fmtMoney(totalPendente)}</div><div class="hint">${pendentes.length} boleto(s)</div></div>
     <div class="kpi"><div class="label">Em atraso</div><div class="value ${totalAtrasado>0?'neg':''}">${fmtMoney(totalAtrasado)}</div></div>
@@ -2926,6 +2946,8 @@ function attachHandlers(){
   if(talaoFiltroStatusSel) talaoFiltroStatusSel.onchange = ()=>{ talaoFiltroStatus = talaoFiltroStatusSel.value; render(); };
   const talaoFiltroMesSel = document.getElementById('talaoFiltroMes');
   if(talaoFiltroMesSel) talaoFiltroMesSel.onchange = ()=>{ talaoFiltroMes = talaoFiltroMesSel.value; render(); };
+  const talaoFiltroClienteSel = document.getElementById('talaoFiltroCliente');
+  if(talaoFiltroClienteSel) talaoFiltroClienteSel.onchange = ()=>{ talaoFiltroCliente = talaoFiltroClienteSel.value; render(); };
 
   const talaoAddAdm = document.getElementById('talaoAddAdm');
   if(talaoAddAdm){
@@ -3694,7 +3716,7 @@ function attachHandlers(){
   });
 
   const extratoConta = document.getElementById('extratoConta');
-  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; render(); };
+  if(extratoConta) extratoConta.onchange = ()=>{ extratoContaSel = extratoConta.value; ofxPreview = null; estadoEdicao.tx = null; mostrarCorrecaoSaldo=false; mostrarTransferencia=false; render(); };
   const periodoMesSel = document.getElementById('periodoMes');
   if(periodoMesSel) periodoMesSel.onchange = ()=>{ periodoGlobal.mes = parseInt(periodoMesSel.value); render(); };
   const periodoAnoSel = document.getElementById('periodoAno');
@@ -3702,7 +3724,35 @@ function attachHandlers(){
   const periodoTodosChk = document.getElementById('periodoTodos');
   if(periodoTodosChk) periodoTodosChk.onchange = ()=>{ periodoGlobal.todos = periodoTodosChk.checked; render(); };
   const toggleCorrecaoSaldo = document.getElementById('toggleCorrecaoSaldo');
-  if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; render(); };
+  if(toggleCorrecaoSaldo) toggleCorrecaoSaldo.onclick = ()=>{ mostrarCorrecaoSaldo = !mostrarCorrecaoSaldo; mostrarTransferencia=false; render(); };
+  const toggleTransferencia = document.getElementById('toggleTransferencia');
+  if(toggleTransferencia) toggleTransferencia.onclick = ()=>{ mostrarTransferencia = !mostrarTransferencia; mostrarCorrecaoSaldo=false; render(); };
+  const confirmarTransferencia = document.getElementById('confirmarTransferencia');
+  if(confirmarTransferencia){
+    confirmarTransferencia.onclick = ()=>{
+      const origemId = document.getElementById('transfOrigem').value;
+      const destinoId = document.getElementById('transfDestino').value;
+      const valor = parseFloat(document.getElementById('transfValor').value);
+      const data = document.getElementById('transfData').value || todayISO();
+      if(origemId===destinoId){ alert('Escolha duas contas diferentes.'); return; }
+      if(!valor || valor<=0){ alert('Informe um valor válido.'); return; }
+      const origem = state.contas.find(c=>c.id===origemId);
+      const destino = state.contas.find(c=>c.id===destinoId);
+      const transferId = uid();
+      state.transacoes.push({
+        id: uid(), contaId: origemId, data,
+        descricao: `Transferência enviada para ${destino? destino.nome : ''}`,
+        tipo: 'debito', valor, categoria: 'transferencia', transferenciaId: transferId
+      });
+      state.transacoes.push({
+        id: uid(), contaId: destinoId, data,
+        descricao: `Transferência recebida de ${origem? origem.nome : ''}`,
+        tipo: 'credito', valor, categoria: 'transferencia', transferenciaId: transferId
+      });
+      mostrarTransferencia = false;
+      render(); saveState();
+    };
+  }
   const excluirExtratoCompleto = document.getElementById('excluirExtratoCompleto');
   if(excluirExtratoCompleto){
     excluirExtratoCompleto.onclick = ()=>{
@@ -3779,7 +3829,11 @@ function attachHandlers(){
   document.querySelectorAll('[data-estornar-tx]').forEach(b=> b.onclick = ()=>{
     const original = state.transacoes.find(t=>t.id===b.dataset.estornarTx);
     if(!original) return;
-    if(!confirm(`Estornar "${original.descricao}" (${fmtMoney(original.valor)})? Isso cria um lançamento de estorno hoje, sem apagar o lançamento original.`)) return;
+    const par = original.transferenciaId ? state.transacoes.find(t=> t.transferenciaId===original.transferenciaId && t.id!==original.id && !t.estornado) : null;
+    const msg = par
+      ? `Estornar "${original.descricao}" (${fmtMoney(original.valor)})? Como isso faz parte de uma transferência entre contas, a outra perna ("${par.descricao}") também será estornada junto, para não sobrar saldo faltando de um lado.`
+      : `Estornar "${original.descricao}" (${fmtMoney(original.valor)})? Isso cria um lançamento de estorno hoje, sem apagar o lançamento original.`;
+    if(!confirm(msg)) return;
     original.estornado = true;
     state.transacoes.push({
       id: uid(), contaId: original.contaId,
@@ -3790,6 +3844,18 @@ function attachHandlers(){
       categoria: original.categoria,
       estornoDe: original.id
     });
+    if(par){
+      par.estornado = true;
+      state.transacoes.push({
+        id: uid(), contaId: par.contaId,
+        data: todayISO(),
+        descricao: 'Estorno: ' + par.descricao,
+        tipo: par.tipo==='credito' ? 'debito' : 'credito',
+        valor: par.valor,
+        categoria: par.categoria,
+        estornoDe: par.id
+      });
+    }
     render(); saveState();
   });
   document.querySelectorAll('[data-del-tx]').forEach(b=> b.onclick = async ()=>{
@@ -4114,6 +4180,18 @@ function attachHandlers(){
     state.plano = state.plano.filter(p=>p.id!==b.dataset.delPlano);
     render(); saveState();
   });
+  document.querySelectorAll('[data-ajustar-plano]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.ajustePlano = b.dataset.ajustarPlano; render();
+  });
+  const cancelarAjustePlano = document.querySelector('[data-cancelar-ajuste-plano]');
+  if(cancelarAjustePlano) cancelarAjustePlano.onclick = ()=>{ estadoEdicao.ajustePlano = null; render(); };
+  document.querySelectorAll('[data-salvar-ajuste-plano]').forEach(b=> b.onclick = ()=>{
+    const p = state.plano.find(p=>p.id===b.dataset.salvarAjustePlano);
+    const input = document.getElementById('ajustePlanoValor');
+    if(p && input) p.ajusteManual = parseFloat(input.value)||0;
+    estadoEdicao.ajustePlano = null;
+    render(); saveState();
+  });
 }
 
 /* ---------------- Autenticação (via servidor) ----------------
@@ -4169,8 +4247,7 @@ function mostrarLogin(primeiroAcesso){
 function renderAcesso(){
   return `
   <div class="card">
-    <div class="card-head"><h2>Usuário e senha de acesso</h2></div>
-    <div class="hint" style="margin-bottom:14px;">Essa senha protege a entrada neste ERP. Ela fica guardada de forma protegida no servidor — se trocar, use a nova senha no próximo login.</div>
+    <div class="card-head"><h2>Usuário e senha de acesso</h2>${avisoIcon('Essa senha protege a entrada neste ERP. Ela fica guardada de forma protegida no servidor — se trocar, use a nova senha no próximo login.')}</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr auto;">
       <div class="field"><label>Usuário atual</label><input id="acUsuario" placeholder="Confirme o usuário atual"></div>
       <div class="field"><label>Nova senha</label><input type="password" id="acSenha" placeholder="Digite a nova senha"></div>
@@ -4186,14 +4263,10 @@ function renderBackup(){
     + state.clientes.length + state.contasPagar.length + state.contasReceber.length + state.fornecedores.length;
   return `
   <div class="card">
-    <div class="card-head"><h2>Sobre o armazenamento</h2></div>
-    <div class="hint" style="font-size:13px; line-height:1.6;">
-      Agora seus dados ficam guardados em um banco de dados no servidor — não dependem mais deste navegador ou deste computador, e continuam intactos quando eu atualizar o sistema. Ainda assim, é uma boa prática exportar um backup de vez em quando, como uma cópia de segurança extra.
-    </div>
+    <div class="card-head"><h2>Sobre o armazenamento</h2>${avisoIcon('Agora seus dados ficam guardados em um banco de dados no servidor — não dependem mais deste navegador ou deste computador, e continuam intactos quando eu atualizar o sistema. Ainda assim, é uma boa prática exportar um backup de vez em quando, como uma cópia de segurança extra.')}</div>
   </div>
   <div class="card">
-    <div class="card-head"><h2>Exportar backup</h2></div>
-    <div class="hint" style="margin-bottom:12px;">Gera um arquivo .json com todos os dados cadastrados (${totalRegistros} registros ao todo, além das configurações da empresa e do plano de contas).</div>
+    <div class="card-head"><h2>Exportar backup</h2>${avisoIcon('Gera um arquivo .json com todos os dados cadastrados ('+totalRegistros+' registros ao todo, além das configurações da empresa e do plano de contas).')}</div>
     <button class="btn btn-primary" id="exportarBackup">Exportar backup (.json)</button>
   </div>
   <div class="card">
@@ -4207,6 +4280,7 @@ function renderBackup(){
 /* ---------------- Init ---------------- */
 document.addEventListener('click', (e)=>{
   if(!e.target.closest('.menu-acoes')) document.querySelectorAll('.menu-acoes[open]').forEach(d=> d.open=false);
+  if(!e.target.closest('.info-icone')) document.querySelectorAll('.info-icone[open]').forEach(d=> d.open=false);
 });
 async function iniciarApp(){
   document.getElementById('view').innerHTML = '<div class="card"><div class="empty">Carregando seus dados...</div></div>';
