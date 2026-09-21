@@ -847,7 +847,7 @@ function renderExtrato(){
     ${edit? `<button class="btn-ghost" id="cancelarEdicaoTx" style="margin-top:6px;">Cancelar edição</button>` : ''}
   </div>
   <div class="card">
-    <div class="card-head"><h2>Importar extrato bancário (OFX)</h2>${avisoIcon('Selecione o arquivo .ofx exportado do seu banco. Os lançamentos serão importados para a conta selecionada acima: <b>'+escHtml(contaNome(extratoContaSel))+'</b>.')}</div>
+    <div class="card-head"><h2>Importar extrato bancário (OFX)</h2>${avisoIcon('Selecione o arquivo .ofx exportado do seu banco. O sistema tenta casar cada lançamento com uma conta a pagar/receber pendente (mesmo valor, vencimento próximo da data) e já dá baixa automaticamente nela — sem duplicar categoria de receita/despesa. Lançamentos parecidos com algo que já existe nesta conta e nesta data são marcados como possível duplicado e ficam desmarcados por padrão. A conta selecionada acima é: <b>'+escHtml(contaNome(extratoContaSel))+'</b>.')}</div>
     <input type="file" id="ofxInput" accept=".ofx,.qfx,text/*">
     ${ofxPreview? renderOfxPreview() : ''}
   </div>
@@ -891,17 +891,27 @@ function renderOfxPreview(){
     return `<div class="hint" style="margin-top:10px;">Não encontramos lançamentos nesse arquivo. Confirme se é um arquivo .ofx exportado do internet banking do seu banco.</div>`;
   }
   const selecionados = ofxPreview.filter(p=>p.selecionado).length;
+  const conciliados = ofxPreview.filter(p=>p.conciliacao).length;
+  const duplicados = ofxPreview.filter(p=>p.duplicado).length;
   return `
   <div style="margin-top:14px;">
-    <div class="hint" style="margin-bottom:8px;">${ofxPreview.length} lançamentos encontrados. Confira as categorias antes de importar — você pode ajustar cada uma.</div>
-    <table><thead><tr><th></th><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Categoria</th></tr></thead>
+    <div class="hint" style="margin-bottom:8px;">
+      ${ofxPreview.length} lançamentos encontrados.
+      ${conciliados>0? ` <span class="pill green">${conciliados} conciliado(s) automaticamente</span>`:''}
+      ${duplicados>0? ` <span class="pill amber">${duplicados} possível(is) duplicado(s) — desmarcados por padrão</span>`:''}
+    </div>
+    <table><thead><tr><th></th><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Categoria / Conciliação</th></tr></thead>
     <tbody>${ofxPreview.map((p,i)=>`
-      <tr>
+      <tr style="${p.duplicado?'opacity:.6;':''}">
         <td><input type="checkbox" data-ofx-check="${i}" ${p.selecionado?'checked':''}></td>
         <td class="muted">${fmtDate(p.data)}</td>
-        <td>${escHtml(p.descricao)}</td>
+        <td>${escHtml(p.descricao)} ${p.duplicado? `<span class="pill amber" title="Já existe um lançamento parecido nesta conta, nesta data">Possível duplicado</span>`:''}</td>
         <td class="num ${p.tipo==='credito'?'pos':'neg'}">${p.tipo==='credito'?'+':'-'} ${fmtMoney(p.valor)}</td>
-        <td><select data-ofx-cat="${i}">${categoriasAtuais().map(c=>`<option value="${c.id}" ${p.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select></td>
+        <td>${p.conciliacao?
+          `<span class="pill green" title="Vai marcar como pago/recebido, sem criar categoria de receita/despesa">Concilia com: ${escHtml(p.conciliacao.descricao)}</span>
+           <button class="btn-ghost" data-ofx-desfazer-conciliacao="${i}" style="font-size:11px; padding:2px 6px;">Desfazer</button>`
+          : `<select data-ofx-cat="${i}">${categoriasAtuais().map(c=>`<option value="${c.id}" ${p.categoria===c.id?'selected':''}>${c.label}</option>`).join('')}</select>`}
+        </td>
       </tr>`).join('')}
     </tbody></table>
     <div style="margin-top:10px; display:flex; gap:8px;">
@@ -909,6 +919,21 @@ function renderOfxPreview(){
       <button class="btn" id="cancelarImportOfx">Cancelar</button>
     </div>
   </div>`;
+}
+function sugerirConciliacao(p){
+  const TOLERANCIA_DIAS = 15;
+  const diffDias = (d1, d2) => Math.abs((new Date(d1+'T00:00:00') - new Date(d2+'T00:00:00')) / 86400000);
+  if(p.tipo==='debito'){
+    const candidato = state.contasPagar.find(i=> i.status!=='pago' && Math.abs(i.valor-p.valor)<0.01 && diffDias(i.vencimento,p.data)<=TOLERANCIA_DIAS);
+    if(candidato) return { tipoConta:'pagar', id:candidato.id, descricao:candidato.descricao };
+  } else {
+    const candidato = state.contasReceber.find(i=> i.status!=='pago' && Math.abs(i.valor-p.valor)<0.01 && diffDias(i.vencimento,p.data)<=TOLERANCIA_DIAS);
+    if(candidato) return { tipoConta:'receber', id:candidato.id, descricao:candidato.descricao };
+  }
+  return null;
+}
+function detectarDuplicado(p){
+  return state.transacoes.some(t=> t.contaId===extratoContaSel && !t.estornado && t.data===p.data && t.tipo===p.tipo && Math.abs(t.valor-p.valor)<0.01);
 }
 function parseOFX(texto){
   const blocos = texto.match(/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi) || texto.split(/<STMTTRN>/i).slice(1).map(b=>b.split(/<\/STMTTRN>/i)[0]);
@@ -928,11 +953,16 @@ function parseOFX(texto){
     const valorNum = parseFloat(valorRaw.replace(',','.'));
     if(isNaN(valorNum) || !ano || !mes || !dia) return;
     const tipo = valorNum >= 0 ? 'credito' : 'debito';
-    resultado.push({
+    const item = {
       selecionado:true, data, descricao: memo,
       valor: Math.abs(valorNum), tipo,
       categoria: tipo==='credito' ? 'receita_servicos' : 'desp_admin'
-    });
+    };
+    item.conciliacao = sugerirConciliacao(item);
+    item.duplicado = detectarDuplicado(item);
+    if(item.duplicado) item.selecionado = false;
+    if(item.conciliacao) item.categoria = null;
+    resultado.push(item);
   });
   return resultado;
 }
@@ -3883,11 +3913,36 @@ function attachHandlers(){
   document.querySelectorAll('[data-ofx-cat]').forEach(sel=> sel.onchange = ()=>{
     ofxPreview[parseInt(sel.dataset.ofxCat)].categoria = sel.value;
   });
+  document.querySelectorAll('[data-ofx-desfazer-conciliacao]').forEach(b=> b.onclick = ()=>{
+    const p = ofxPreview[parseInt(b.dataset.ofxDesfazerConciliacao)];
+    if(p){
+      p.conciliacao = null;
+      p.categoria = p.tipo==='credito' ? 'receita_servicos' : 'desp_admin';
+      render();
+    }
+  });
   const confirmarImportOfx = document.getElementById('confirmarImportOfx');
   if(confirmarImportOfx){
     confirmarImportOfx.onclick = async ()=>{
       const selecionados = ofxPreview.filter(p=>p.selecionado);
       selecionados.forEach(p=>{
+        if(p.conciliacao){
+          const lista = p.conciliacao.tipoConta==='pagar' ? state.contasPagar : state.contasReceber;
+          const item = lista.find(i=>i.id===p.conciliacao.id);
+          if(item && item.status!=='pago'){
+            const novaTxId = uid();
+            item.status = 'pago';
+            item.contaId = extratoContaSel;
+            item.dataPagamento = p.data;
+            item.transacaoId = novaTxId;
+            state.transacoes.push({
+              id: novaTxId, contaId: extratoContaSel, data: p.data,
+              descricao: (p.tipo==='debito'?'Pagamento: ':'Recebimento: ') + item.descricao,
+              tipo: p.tipo, valor: p.valor, categoria: item.categoria
+            });
+            return;
+          }
+        }
         state.transacoes.push({
           id: uid(), contaId: extratoContaSel,
           data: p.data, descricao: p.descricao, tipo: p.tipo, valor: p.valor, categoria: p.categoria
