@@ -361,7 +361,9 @@ let state = {
   boletos: [],
   emprestimos: [],
   talao: { vendas: [], parcelas: [], rules: {}, metas: {} },
-  categoriasDre: []
+  categoriasDre: [],
+  parceiros: [],
+  comissoesParceiros: []
 };
 
 function planoPadrao(){
@@ -409,6 +411,8 @@ async function loadState(){
   if(!state.talao.parcelas) state.talao.parcelas = [];
   if(!state.talao.rules || !state.talao.rules.Servopa) state.talao.rules = JSON.parse(JSON.stringify(TALAO_RULES_PADRAO));
   if(!state.categoriasDre || state.categoriasDre.length===0) state.categoriasDre = JSON.parse(JSON.stringify(CATEGORIAS_PADRAO));
+  if(!state.parceiros) state.parceiros = [];
+  if(!state.comissoesParceiros) state.comissoesParceiros = [];
 
 }
 
@@ -507,6 +511,7 @@ const TITLES = {
   categoriasDre:['Categorias da DRE','Crie novas categorias ou ajuste as atuais'],
   crm:['CRM','Seu funil de relacionamento, de um jeito simples'],
   talao:['Talão de comissões','Vendas de consórcio, tabelas de comissão e parcelas'],
+  parceiros:['Parceiros','Vendas feitas por parceiros e pagamento de comissões'],
   faturas:['Faturas de cobrança','Gere faturas em PDF com QR Code Pix'],
   cartoes:['Cartões e empréstimos','Lançamentos de cartão de crédito e empréstimos'],
   prolabore:['Pró-labore','Gere a folha de pró-labore em PDF'],
@@ -514,7 +519,7 @@ const TITLES = {
   backup:['Backup e atualização','Exporte e importe seus dados com segurança']
 };
 let activeTab = 'dashboard';
-let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null, boleto:null, ajustePlano:null };
+let estadoEdicao = { conta:null, tx:null, nota:null, cliente:null, fornecedor:null, pagar:null, receber:null, plano:null, agenda:null, crm:null, fatura:null, proLabore:null, cartao:null, cartaoLanc:null, emprestimo:null, categoria:null, boleto:null, ajustePlano:null, parceiro:null };
 let crmSelecionado = null;
 const NAV_ESTRUTURA = [
   {tipo:'item', tab:'dashboard', label:'Dashboard'},
@@ -522,6 +527,7 @@ const NAV_ESTRUTURA = [
   {tipo:'grupo', id:'relacionamento', label:'Relacionamento', itens:[
     {tab:'crm', label:'CRM'},
     {tab:'talao', label:'Talão de comissões'},
+    {tab:'parceiros', label:'Parceiros'},
     {tab:'clientes', label:'Consorciados'},
     {tab:'fornecedores', label:'Clientes'}
   ]},
@@ -592,6 +598,7 @@ function render(){
   if(activeTab==='agenda') view.innerHTML = renderAgenda();
   if(activeTab==='crm') view.innerHTML = renderCRM();
   if(activeTab==='talao') view.innerHTML = renderTalao();
+  if(activeTab==='parceiros') view.innerHTML = renderParceiros();
   if(activeTab==='faturas') view.innerHTML = renderFaturas();
   if(activeTab==='boletos') view.innerHTML = renderBoletos();
   if(activeTab==='cartoes') view.innerHTML = renderCartoesEmprestimos();
@@ -1842,13 +1849,13 @@ function talaoLineChart(data, cor){
   </svg>`;
 }
 let talaoSubTab = 'dashboard';
-let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0, vencimentoCota:'' };
+let talaoForm = { cliente:'', adm:'Embracon', tabelaId:'', grupo:'', cota:'', contrato:'', tipoBem:'AUTO', valorCredito:'', mesInicialIdx:0, vencimentoCota:'', parceiroId:'' };
 let talaoFiltroAdm = 'Todas';
 let talaoFiltroStatus = 'Todos';
 let talaoFiltroMes = 'Todos';
 let talaoFiltroCliente = 'Todos';
 function talaoCapturarForm(){
-  const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito', vencimentoCota:'talVencimentoCota' };
+  const campos = { cliente:'talCliente', grupo:'talGrupo', cota:'talCota', contrato:'talContrato', valorCredito:'talValorCredito', vencimentoCota:'talVencimentoCota', parceiroId:'talParceiro' };
   Object.entries(campos).forEach(([campo,id])=>{
     const el = document.getElementById(id);
     if(el) talaoForm[campo] = el.value;
@@ -1995,6 +2002,15 @@ function renderTalaoLancar(){
         </select></div>
         <div class="field"><label>Vencimento da cota (opcional)</label><input type="date" id="talVencimentoCota" value="${escAttr(talaoForm.vencimentoCota)}"></div>
       </div>
+      <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+        <div class="field"><label>Parceiro (opcional) ${avisoIcon('Se esta venda foi feita por um parceiro, selecione-o aqui. O sistema vai calcular automaticamente a comissão dele, parcelada no mesmo calendário em que você recebe da administradora.')}</label>
+          <select id="talParceiro">
+            <option value="">— Venda própria (sem parceiro) —</option>
+            ${state.parceiros.filter(pr=>pr.ativo!==false).map(pr=>`<option value="${pr.id}" ${talaoForm.parceiroId===pr.id?'selected':''}>${escHtml(pr.nome)} · ${Number(pr.percentualComissao||0).toFixed(2)}%</option>`).join('')}
+          </select>
+          ${state.parceiros.length===0? `<div class="hint" style="margin-top:4px;">Nenhum parceiro cadastrado ainda — cadastre em "Parceiros" para poder vincular vendas.</div>`:''}
+        </div>
+      </div>
       <button class="btn btn-primary" id="talaoLancarVenda" style="margin-top:12px;" ${preview.semTabela?'disabled':''}>Lançar venda</button>
     </div>
     <div class="card" style="flex:0 0 300px; background:var(--tooltip); margin-bottom:0;">
@@ -2005,6 +2021,19 @@ function renderTalaoLancar(){
         ${preview.clamp? `<span class="pill amber">${preview.clamp} aplicado</span>`:''}
         ${preview.acelerado? `<span class="pill green">⚡ acelerador ativo</span>`:''}
       </div>
+      ${(()=>{
+        const parceiroSel = state.parceiros.find(pr=>pr.id===talaoForm.parceiroId);
+        if(!parceiroSel) return '';
+        const pct = Number(parceiroSel.percentualComissao||0);
+        const totalParceiro = preview.total * pct/100;
+        return `<div style="background:rgba(255,255,255,.05); border:1px solid #2A3530; border-radius:8px; padding:10px 12px; margin-bottom:14px;">
+          <div style="font-size:11px; color:#9AA79C; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">Comissão do parceiro</div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <span style="font-size:11.5px; color:#B7C2B8;">${escHtml(parceiroSel.nome)} · ${pct.toFixed(2)}%</span>
+            <span class="num" style="font-size:16px; font-weight:600; color:#4FD79B;">${fmtMoney(totalParceiro)}</span>
+          </div>
+        </div>`;
+      })()}
       <div style="font-size:11px; color:#9AA79C; margin-bottom:6px;">parcela = valor_crédito × % da parcela</div>
       <div style="display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto;">
         ${preview.parcelas.length===0? `<div style="font-size:12px; color:#7A8A7C;">Selecione uma tabela válida.</div>` :
@@ -2770,6 +2799,242 @@ function imprimirBalancete(){
   imprimirHtml('Balancete', corpo);
 }
 
+/* ---------------- PARCEIROS ---------------- */
+let parceiroSubTab = 'dashboard';
+let parceiroVendasFiltro = 'Todos';
+let parceiroComissaoFiltroParceiro = 'Todos';
+let parceiroComissaoFiltroStatus = 'Todos';
+let parceiroComissaoFiltroMes = 'Todos';
+function renderParceiros(){
+  const abas = [
+    {id:'dashboard', label:'Dashboard'},
+    {id:'parceiros', label:'Parceiros'},
+    {id:'vendas', label:'Vendas'},
+    {id:'comissoes', label:'Comissões a pagar'}
+  ];
+  return `
+  <div style="display:flex; gap:4px; margin-bottom:16px; flex-wrap:wrap;">
+    ${abas.map(a=>`<button class="btn ${parceiroSubTab===a.id?'btn-primary':''}" data-parceiro-tab="${a.id}" style="font-size:12.5px;">${a.label}</button>`).join('')}
+  </div>
+  ${parceiroSubTab==='dashboard'? renderParceirosDashboard() : ''}
+  ${parceiroSubTab==='parceiros'? renderParceirosCadastro() : ''}
+  ${parceiroSubTab==='vendas'? renderParceirosVendas() : ''}
+  ${parceiroSubTab==='comissoes'? renderParceirosComissoes() : ''}
+  `;
+}
+function renderParceirosDashboard(){
+  const comissoes = state.comissoesParceiros;
+  const aPagar = comissoes.filter(c=>c.status!=='Pago');
+  const pagas = comissoes.filter(c=>c.status==='Pago');
+  const soma = arr=> arr.reduce((s,c)=>s+c.valor,0);
+  const vendasComParceiro = state.talao.vendas.filter(v=>v.parceiroId);
+  const ativos = state.parceiros.filter(p=>p.ativo!==false);
+  const ranking = state.parceiros.map(p=>{
+    const vendasP = vendasComParceiro.filter(v=>v.parceiroId===p.id);
+    const comissoesP = comissoes.filter(c=>c.parceiroId===p.id);
+    return {
+      parceiro: p,
+      nVendas: vendasP.length,
+      totalVendido: vendasP.reduce((s,v)=>s+(Number(v.valorCredito)||0),0),
+      totalComissao: soma(comissoesP),
+      totalPago: soma(comissoesP.filter(c=>c.status==='Pago')),
+      totalAPagar: soma(comissoesP.filter(c=>c.status!=='Pago'))
+    };
+  }).filter(r=>r.nVendas>0).sort((a,b)=>b.totalComissao-a.totalComissao);
+  const proximos = aPagar.slice().sort((a,b)=>a.idx-b.idx).slice(0,6);
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">A pagar a parceiros</div><div class="value neg">${fmtMoney(soma(aPagar))}</div><div class="hint">${aPagar.length} parcela(s)</div></div>
+    <div class="kpi"><div class="label">Já pago</div><div class="value pos">${fmtMoney(soma(pagas))}</div><div class="hint">${pagas.length} parcela(s)</div></div>
+    <div class="kpi"><div class="label">Parceiros ativos</div><div class="value">${ativos.length}</div><div class="hint">de ${state.parceiros.length} cadastrados</div></div>
+    <div class="kpi"><div class="label">Vendas com parceiro</div><div class="value">${vendasComParceiro.length}</div><div class="hint">no Talão de comissões</div></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Ranking de parceiros</h2><span class="hint">por comissão gerada</span></div>
+    ${ranking.length===0? '<div class="empty">Nenhuma venda vinculada a parceiros ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${ranking.map(r=>`
+      <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 14px; flex-wrap:wrap; gap:8px;">
+        <div>
+          <div style="font-size:13.5px; font-weight:500;">${escHtml(r.parceiro.nome)}</div>
+          <div class="muted" style="font-size:11.5px;">${r.nVendas} venda(s) · ${fmtMoney(r.totalVendido)} vendidos</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="text-align:right;"><div class="muted" style="font-size:10.5px;">A pagar</div><div class="num" style="font-size:13px;">${fmtMoney(r.totalAPagar)}</div></div>
+          <div style="text-align:right;"><div class="muted" style="font-size:10.5px;">Pago</div><div class="num pos" style="font-size:13px;">${fmtMoney(r.totalPago)}</div></div>
+        </div>
+      </div>`).join('')}
+    </div>`}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Próximas comissões a pagar</h2></div>
+    ${proximos.length===0? '<div class="empty">Nada pendente.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${proximos.map(c=>parceiroComissaoTicket(c)).join('')}
+    </div>`}
+  </div>`;
+}
+function renderParceirosCadastro(){
+  const edit = estadoEdicao.parceiro ? state.parceiros.find(p=>p.id===estadoEdicao.parceiro) : null;
+  const lista = state.parceiros.slice().sort((a,b)=>a.nome.localeCompare(b.nome));
+  return `
+  <div class="card">
+    <div class="card-head"><h2>${edit? 'Editar parceiro':'Novo parceiro'}</h2>${avisoIcon('Cada parceiro tem sua própria regra de comissão (%). Esse percentual é aplicado sobre a comissão que a empresa recebe em cada venda vinculada a ele, parcelado no mesmo calendário em que a administradora paga a empresa.')}</div>
+    <div class="form-grid" style="grid-template-columns:1.3fr 1fr 1fr auto;">
+      <div class="field"><label>Nome</label><input id="pcNome" placeholder="Nome do parceiro" value="${edit? escAttr(edit.nome):''}"></div>
+      <div class="field"><label>% de comissão</label><input class="num" type="number" min="0" max="100" step="0.01" id="pcPercentual" placeholder="0,00" value="${edit? escAttr(edit.percentualComissao):''}"></div>
+      <div class="field"><label>Telefone</label><input id="pcTelefone" placeholder="(00) 00000-0000" value="${edit? escAttr(edit.telefone||''):''}"></div>
+      <button class="btn btn-primary" id="addParceiro">${edit? 'Salvar':'Adicionar'}</button>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr; margin-top:2px;">
+      <div class="field"><label>CPF / CNPJ</label><input id="pcDocumento" placeholder="000.000.000-00" value="${edit? escAttr(edit.documento||''):''}"></div>
+      <div class="field"><label>E-mail</label><input type="email" id="pcEmail" placeholder="contato@email.com" value="${edit? escAttr(edit.email||''):''}"></div>
+      <div class="field"><label>Status</label><select id="pcAtivo">
+        <option value="true" ${!edit||edit.ativo!==false?'selected':''}>Ativo</option>
+        <option value="false" ${edit&&edit.ativo===false?'selected':''}>Inativo</option>
+      </select></div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:1fr; margin-top:2px;">
+      <div class="field"><label>Observações</label><input id="pcObs" placeholder="Condições combinadas, chave Pix..." value="${edit? escAttr(edit.obs||''):''}"></div>
+    </div>
+    ${edit? `<button class="btn-ghost" id="cancelarEdicaoParceiro" style="margin-top:6px;">Cancelar edição</button>` : ''}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Parceiros cadastrados</h2></div>
+    ${lista.length===0? '<div class="empty">Nenhum parceiro cadastrado ainda.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:10px;">
+    ${lista.map(p=>{
+      const vendasP = state.talao.vendas.filter(v=>v.parceiroId===p.id);
+      const comissoesP = state.comissoesParceiros.filter(c=>c.parceiroId===p.id);
+      const aPagar = comissoesP.filter(c=>c.status!=='Pago').reduce((s,c)=>s+c.valor,0);
+      return `
+      <div style="border:1px solid var(--line); border-radius:10px; padding:14px 16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-weight:500; font-size:14.5px;">${escHtml(p.nome)}</span>
+            <span class="pill ${p.ativo!==false?'green':'gray'}">${p.ativo!==false?'Ativo':'Inativo'}</span>
+            <span class="pill amber">${Number(p.percentualComissao||0).toFixed(2)}% de comissão</span>
+          </div>
+          <div>
+            <button class="btn-ghost" data-editar-parceiro="${p.id}">Editar</button>
+            <button class="btn-danger-ghost" data-del-parceiro="${p.id}">Excluir</button>
+          </div>
+        </div>
+        <table style="font-size:12.5px;"><tbody>
+          <tr>
+            <td class="muted" style="width:110px; padding-left:0;">CPF/CNPJ</td><td>${escHtml(p.documento||'—')}</td>
+            <td class="muted" style="width:90px;">Telefone</td><td>${escHtml(p.telefone||'—')}</td>
+          </tr>
+          <tr>
+            <td class="muted" style="padding-left:0;">E-mail</td><td>${escHtml(p.email||'—')}</td>
+            <td class="muted">Vendas</td><td>${vendasP.length}</td>
+          </tr>
+        </tbody></table>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          ${p.obs? `<div style="font-size:12px; color:var(--ink-faint);">${escHtml(p.obs)}</div>` : '<div></div>'}
+          <div class="num" style="font-size:13px;">A pagar: <strong>${fmtMoney(aPagar)}</strong></div>
+        </div>
+      </div>`;
+    }).join('')}
+    </div>`}
+  </div>`;
+}
+function renderParceirosVendas(){
+  const vendas = state.talao.vendas.filter(v=>v.parceiroId)
+    .filter(v=> parceiroVendasFiltro==='Todos' || v.parceiroId===parceiroVendasFiltro)
+    .slice().sort((a,b)=>b.createdAt-a.createdAt);
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Vendas de parceiros</h2></div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <select id="parceiroVendasFiltro" style="width:auto;">
+        <option value="Todos" ${parceiroVendasFiltro==='Todos'?'selected':''}>Todos os parceiros</option>
+        ${state.parceiros.map(p=>`<option value="${p.id}" ${parceiroVendasFiltro===p.id?'selected':''}>${escHtml(p.nome)}</option>`).join('')}
+      </select>
+      <span class="hint">${vendas.length} venda(s) · ${fmtMoney(vendas.reduce((s,v)=>s+(Number(v.valorCredito)||0),0))} vendidos · ${fmtMoney(vendas.reduce((s,v)=>s+(Number(v.comissaoParceiroTotal)||0),0))} em comissões</span>
+    </div>
+  </div>
+  <div class="card">
+    ${vendas.length===0? '<div class="empty">Nenhuma venda vinculada a parceiros ainda. Vincule um parceiro ao lançar uma venda em "Talão de comissões".</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${vendas.map(v=>`
+      <div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 14px; flex-wrap:wrap; gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:13.5px; font-weight:500;">${escHtml(v.cliente)} <span class="muted" style="font-weight:400;">· ${escHtml(v.parceiroNome)}</span></div>
+          <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace;">${escHtml(v.adm)} · Cota ${escHtml(v.cota||'—')} · ${fmtMoney(Number(v.valorCredito)||0)}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div style="text-align:right;"><div class="muted" style="font-size:10.5px;">Comissão empresa</div><div class="num" style="font-size:13px;">${fmtMoney(v.comissaoTotal)}</div></div>
+          <div style="text-align:right;"><div class="muted" style="font-size:10.5px;">Comissão parceiro (${Number(v.percentualParceiro||0).toFixed(2)}%)</div><div class="num" style="font-size:13px; font-weight:600; color:var(--accent-text);">${fmtMoney(v.comissaoParceiroTotal)}</div></div>
+        </div>
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+function renderParceirosComissoes(){
+  const mesesDisponiveis = Array.from(new Set(state.comissoesParceiros.map(c=>c.mes)))
+    .sort((a,b)=>{
+      const idxA=(state.comissoesParceiros.find(c=>c.mes===a)||{}).idx||0;
+      const idxB=(state.comissoesParceiros.find(c=>c.mes===b)||{}).idx||0;
+      return idxA-idxB;
+    });
+  if(parceiroComissaoFiltroMes!=='Todos' && !mesesDisponiveis.includes(parceiroComissaoFiltroMes)) parceiroComissaoFiltroMes='Todos';
+  const lista = state.comissoesParceiros
+    .filter(c=> parceiroComissaoFiltroParceiro==='Todos' || c.parceiroId===parceiroComissaoFiltroParceiro)
+    .filter(c=> parceiroComissaoFiltroStatus==='Todos' || c.status===parceiroComissaoFiltroStatus)
+    .filter(c=> parceiroComissaoFiltroMes==='Todos' || c.mes===parceiroComissaoFiltroMes)
+    .sort((a,b)=>b.idx-a.idx);
+  return `
+  <div class="card">
+    <div class="card-head"><h2>Comissões de parceiros</h2></div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <select id="parceiroComissaoFiltroParceiro" style="width:auto;">
+        <option value="Todos" ${parceiroComissaoFiltroParceiro==='Todos'?'selected':''}>Todos os parceiros</option>
+        ${state.parceiros.map(p=>`<option value="${p.id}" ${parceiroComissaoFiltroParceiro===p.id?'selected':''}>${escHtml(p.nome)}</option>`).join('')}
+      </select>
+      <select id="parceiroComissaoFiltroStatus" style="width:auto;">
+        <option value="Todos" ${parceiroComissaoFiltroStatus==='Todos'?'selected':''}>Todos</option>
+        <option value="A pagar" ${parceiroComissaoFiltroStatus==='A pagar'?'selected':''}>A pagar</option>
+        <option value="Pago" ${parceiroComissaoFiltroStatus==='Pago'?'selected':''}>Pago</option>
+      </select>
+      <select id="parceiroComissaoFiltroMes" style="width:auto;">
+        <option value="Todos" ${parceiroComissaoFiltroMes==='Todos'?'selected':''}>Todos os meses</option>
+        ${mesesDisponiveis.map(m=>`<option value="${escAttr(m)}" ${parceiroComissaoFiltroMes===m?'selected':''}>${escHtml(m)}</option>`).join('')}
+      </select>
+      <span class="hint">${lista.length} parcela(s) · ${fmtMoney(lista.reduce((s,c)=>s+c.valor,0))}</span>
+    </div>
+  </div>
+  <div class="card">
+    ${lista.length===0? '<div class="empty">Nenhuma comissão encontrada com esses filtros.</div>' : `
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      ${lista.map(c=>parceiroComissaoTicket(c)).join('')}
+    </div>`}
+  </div>`;
+}
+function parceiroComissaoTicket(c){
+  const pill = c.status==='Pago'?'green':'amber';
+  return `<div style="display:flex; align-items:center; justify-content:space-between; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 14px; flex-wrap:wrap; gap:8px;">
+    <div style="min-width:0;">
+      <div style="font-size:13.5px; font-weight:500;">${escHtml(c.parceiroNome)}</div>
+      <div class="muted" style="font-size:11.5px; font-family:'IBM Plex Mono',monospace; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        <span>${escHtml(c.cliente)} · ${escHtml(c.adm)} · Cota ${escHtml(c.cota||'—')} · ${Number(c.percentualParceiro||0).toFixed(2)}%</span>
+        <span>· ${c.mes}</span>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0; flex-wrap:wrap;">
+      <span class="num" style="font-weight:600;">${fmtMoney(c.valor)}</span>
+      <span class="pill ${pill}">${c.status}</span>
+      ${c.status==='A pagar'? `
+        <select data-parceiro-conta-pagamento="${c.id}" style="width:auto; padding:4px 6px; font-size:11.5px;">
+          ${state.contas.map(cc=>`<option value="${cc.id}">${escHtml(cc.nome)}</option>`).join('')}
+        </select>
+        <button data-parceiro-pagar-comissao="${c.id}" class="btn-ghost" style="font-size:11.5px;">Pagar</button>
+      ` : ''}
+      ${c.status==='Pago'? `<button data-parceiro-estornar-comissao="${c.id}" class="btn-ghost" style="font-size:11.5px;">Estornar pagamento</button>` : ''}
+    </div>
+  </div>`;
+}
+
 function attachHandlers(){
   const addBoleto = document.getElementById('addBoleto');
   if(addBoleto){
@@ -2839,6 +3104,8 @@ function attachHandlers(){
   if(talTipoBem) talTipoBem.onchange = ()=>{ talaoCapturarForm(); talaoForm.tipoBem = talTipoBem.value; render(); };
   const talVencimentoCota = document.getElementById('talVencimentoCota');
   if(talVencimentoCota) talVencimentoCota.onchange = ()=>{ talaoCapturarForm(); render(); };
+  const talParceiro = document.getElementById('talParceiro');
+  if(talParceiro) talParceiro.onchange = ()=>{ talaoCapturarForm(); talaoForm.parceiroId = talParceiro.value; render(); };
   const talaoLancarVenda = document.getElementById('talaoLancarVenda');
   if(talaoLancarVenda){
     talaoLancarVenda.onclick = ()=>{
@@ -2864,15 +3131,32 @@ function attachHandlers(){
         vencimentoCota: talaoForm.vencimentoCota || '',
         obs: `Lançado via Talão de comissões — tabela "${preview.origem}" · comissão total ${fmtMoney(preview.total)}.`
       });
-      state.talao.vendas.push({ id:vendaId, ...talaoForm, consorciadoId, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now() });
+      const parceiroVinculado = state.parceiros.find(pr=>pr.id===talaoForm.parceiroId);
+      const pctParceiro = parceiroVinculado? Number(parceiroVinculado.percentualComissao||0) : 0;
+      state.talao.vendas.push({
+        id:vendaId, ...talaoForm, consorciadoId, comissaoTotal:preview.total, taxaAplicada:preview.taxaTotal, tabelaNome:preview.origem, createdAt:Date.now(),
+        parceiroId: parceiroVinculado? parceiroVinculado.id : null,
+        parceiroNome: parceiroVinculado? parceiroVinculado.nome : null,
+        percentualParceiro: parceiroVinculado? pctParceiro : null,
+        comissaoParceiroTotal: parceiroVinculado? Math.round((preview.total * pctParceiro/100)*100)/100 : null
+      });
       preview.parcelas.forEach(p=>{
         state.talao.parcelas.push({
           id: uid(), vendaId, cliente: talaoForm.cliente, adm: talaoForm.adm, cota: talaoForm.cota,
           tabela: preview.origem, mes: p.mes, idx: p.idx, valor: p.valor, percentual: p.percentual,
           status: 'A receber', numeroNF:'', contasReceberId:null
         });
+        if(parceiroVinculado){
+          state.comissoesParceiros.push({
+            id: uid(), vendaId, parceiroId: parceiroVinculado.id, parceiroNome: parceiroVinculado.nome,
+            cliente: talaoForm.cliente, adm: talaoForm.adm, cota: talaoForm.cota,
+            mes: p.mes, idx: p.idx, percentualParceiro: pctParceiro,
+            valor: Math.round((p.valor * pctParceiro/100)*100)/100,
+            status: 'A pagar', contasPagarId:null, contaId:null, dataPagamento:null, transacaoId:null
+          });
+        }
       });
-      talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'', vencimentoCota:'' };
+      talaoForm = { ...talaoForm, cliente:'', grupo:'', cota:'', contrato:'', valorCredito:'', vencimentoCota:'', parceiroId:'' };
       talaoSubTab = 'parcelas';
       render(); saveState();
     };
@@ -2971,6 +3255,127 @@ function attachHandlers(){
       }
     }
     p.status = 'Faturado NF';
+    render(); saveState();
+  });
+
+  /* ---- Parceiros ---- */
+  document.querySelectorAll('[data-parceiro-tab]').forEach(b=> b.onclick = ()=>{
+    parceiroSubTab = b.dataset.parceiroTab; render();
+  });
+  const addParceiro = document.getElementById('addParceiro');
+  if(addParceiro){
+    addParceiro.onclick = ()=>{
+      const nome = document.getElementById('pcNome').value.trim();
+      const percentual = parseFloat(document.getElementById('pcPercentual').value);
+      if(!nome || isNaN(percentual) || percentual<0 || percentual>100){
+        alert('Preencha o nome e um percentual de comissão válido (entre 0 e 100).'); return;
+      }
+      const dados = {
+        nome,
+        percentualComissao: percentual,
+        documento: document.getElementById('pcDocumento').value.trim(),
+        telefone: document.getElementById('pcTelefone').value.trim(),
+        email: document.getElementById('pcEmail').value.trim(),
+        ativo: document.getElementById('pcAtivo').value === 'true',
+        obs: document.getElementById('pcObs').value.trim()
+      };
+      if(estadoEdicao.parceiro){
+        const p = state.parceiros.find(p=>p.id===estadoEdicao.parceiro);
+        if(p) Object.assign(p, dados);
+        estadoEdicao.parceiro = null;
+      } else {
+        state.parceiros.push({ id: uid(), createdAt: Date.now(), ...dados });
+      }
+      render(); saveState();
+    };
+  }
+  document.querySelectorAll('[data-editar-parceiro]').forEach(b=> b.onclick = ()=>{
+    estadoEdicao.parceiro = b.dataset.editarParceiro; render();
+  });
+  const cancelarEdicaoParceiro = document.getElementById('cancelarEdicaoParceiro');
+  if(cancelarEdicaoParceiro) cancelarEdicaoParceiro.onclick = ()=>{ estadoEdicao.parceiro=null; render(); };
+  document.querySelectorAll('[data-del-parceiro]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.delParceiro;
+    const temVendas = state.talao.vendas.some(v=>v.parceiroId===id);
+    const msg = temVendas
+      ? 'Este parceiro já tem vendas e comissões lançadas. Elas serão mantidas no histórico, mas o cadastro do parceiro será removido. Deseja continuar?'
+      : 'Excluir este parceiro?';
+    if(!confirm(msg)) return;
+    state.parceiros = state.parceiros.filter(p=>p.id!==id);
+    if(estadoEdicao.parceiro===id) estadoEdicao.parceiro = null;
+    render(); saveState();
+  });
+  const parceiroVendasFiltroSel = document.getElementById('parceiroVendasFiltro');
+  if(parceiroVendasFiltroSel) parceiroVendasFiltroSel.onchange = ()=>{ parceiroVendasFiltro = parceiroVendasFiltroSel.value; render(); };
+  const parceiroComissaoFiltroParceiroSel = document.getElementById('parceiroComissaoFiltroParceiro');
+  if(parceiroComissaoFiltroParceiroSel) parceiroComissaoFiltroParceiroSel.onchange = ()=>{ parceiroComissaoFiltroParceiro = parceiroComissaoFiltroParceiroSel.value; render(); };
+  const parceiroComissaoFiltroStatusSel = document.getElementById('parceiroComissaoFiltroStatus');
+  if(parceiroComissaoFiltroStatusSel) parceiroComissaoFiltroStatusSel.onchange = ()=>{ parceiroComissaoFiltroStatus = parceiroComissaoFiltroStatusSel.value; render(); };
+  const parceiroComissaoFiltroMesSel = document.getElementById('parceiroComissaoFiltroMes');
+  if(parceiroComissaoFiltroMesSel) parceiroComissaoFiltroMesSel.onchange = ()=>{ parceiroComissaoFiltroMes = parceiroComissaoFiltroMesSel.value; render(); };
+  document.querySelectorAll('[data-parceiro-pagar-comissao]').forEach(b=> b.onclick = ()=>{
+    const c = state.comissoesParceiros.find(c=>c.id===b.dataset.parceiroPagarComissao);
+    if(!c) return;
+    const sel = document.querySelector(`[data-parceiro-conta-pagamento="${c.id}"]`);
+    const contaId = sel ? sel.value : (state.contas[0] && state.contas[0].id);
+    if(!contaId){ alert('Cadastre uma conta bancária primeiro em "Contas bancárias".'); return; }
+    let cp = c.contasPagarId ? state.contasPagar.find(i=>i.id===c.contasPagarId) : null;
+    if(!cp){
+      cp = {
+        id: uid(),
+        descricao: `Comissão de parceiro — ${c.parceiroNome} (${c.cliente} · ${c.mes})`,
+        parte: c.parceiroNome,
+        valor: c.valor,
+        vencimento: todayISO(),
+        categoria: 'desp_comercial',
+        status: 'pendente',
+        obs: 'Comissão de venda de parceiro — Módulo Parceiros.'
+      };
+      state.contasPagar.push(cp);
+      c.contasPagarId = cp.id;
+    }
+    cp.status = 'pago';
+    cp.contaId = contaId;
+    cp.dataPagamento = todayISO();
+    const novaTxId = uid();
+    cp.transacaoId = novaTxId;
+    state.transacoes.push({
+      id: novaTxId, contaId, data: todayISO(),
+      descricao: 'Pagamento: ' + cp.descricao,
+      tipo: 'debito', valor: cp.valor, categoria: cp.categoria
+    });
+    c.status = 'Pago';
+    c.contaId = contaId;
+    c.dataPagamento = todayISO();
+    c.transacaoId = novaTxId;
+    render(); saveState();
+  });
+  document.querySelectorAll('[data-parceiro-estornar-comissao]').forEach(b=> b.onclick = ()=>{
+    const c = state.comissoesParceiros.find(c=>c.id===b.dataset.parceiroEstornarComissao);
+    if(!c) return;
+    if(!confirm('Estornar o pagamento desta comissão? Isso cria um estorno no extrato bancário e a comissão volta para "A pagar".')) return;
+    if(c.contasPagarId){
+      const cp = state.contasPagar.find(i=>i.id===c.contasPagarId);
+      if(cp && cp.status==='pago' && cp.transacaoId){
+        const original = state.transacoes.find(t=>t.id===cp.transacaoId);
+        if(original && !original.estornado){
+          original.estornado = true;
+          state.transacoes.push({
+            id: uid(), contaId: original.contaId, data: todayISO(),
+            descricao: 'Estorno: '+original.descricao, tipo: original.tipo==='credito'?'debito':'credito',
+            valor: original.valor, categoria: original.categoria, estornoDe: original.id
+          });
+        }
+        cp.status = 'pendente';
+        cp.contaId = null;
+        cp.dataPagamento = null;
+        cp.transacaoId = null;
+      }
+    }
+    c.status = 'A pagar';
+    c.contaId = null;
+    c.dataPagamento = null;
+    c.transacaoId = null;
     render(); saveState();
   });
 
